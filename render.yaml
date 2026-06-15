@@ -7,16 +7,15 @@ services:
     startCommand: npm run start -w apps/web
     envVars:
       - key: NEXT_PUBLIC_API_BASE_URL
-        fromService:
-          type: web
-          name: repassify-api
-          property: host
+        value: https://repassify-api.onrender.com
 
   - type: web
     name: repassify-api
     runtime: node
     plan: starter
     buildCommand: npm install && npm run build -w packages/core && npm run build -w packages/db && npm run build -w apps/api
+    preDeployCommand: npm run db:migrate
+    initialDeployHook: npm run db:seed:admin
     startCommand: npm run start -w apps/api
     healthCheckPath: /health
     envVars:
@@ -26,6 +25,12 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: REPASSIFY_ADMIN_EMAIL
+        value: admin@repassify.com
+      - key: REPASSIFY_ADMIN_PASSWORD
+        sync: false
+      - key: REPASSIFY_ADMIN_NAME
+        value: Admin Master
       - key: WEB_ORIGIN
         value: https://repassify-web.onrender.com
 

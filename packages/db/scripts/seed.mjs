@@ -13,7 +13,7 @@ if (!connectionString) {
 
 const pool = new pg.Pool({
   connectionString,
-  ssl: connectionString.includes("neon.tech") ? { rejectUnauthorized: false } : undefined
+  ssl: /neon\.tech|render\.com|amazonaws\.com|supabase\.co/i.test(connectionString) ? { rejectUnauthorized: false } : undefined
 });
 
 try {

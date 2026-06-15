@@ -17,7 +17,9 @@
     "typecheck": "npm run build -w packages/core && npm run build -w packages/db && npm run typecheck -w apps/api && npm run typecheck -w apps/web",
     "test": "npm run test -w packages/core && npm run test -w apps/api",
     "db:migrate": "node packages/db/scripts/migrate.mjs",
-    "db:seed": "node packages/db/scripts/seed.mjs"
+    "db:seed": "node packages/db/scripts/seed.mjs",
+    "db:seed:admin": "node packages/db/scripts/seed-admin.mjs",
+    "db:status": "node packages/db/scripts/status.mjs"
   },
   "engines": {
     "node": ">=22.0.0",
