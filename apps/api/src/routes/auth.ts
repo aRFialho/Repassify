@@ -89,7 +89,9 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     if (hasDatabase()) {
       const result = await getPool().query<{
         user_id: string;
+        full_name: string;
         tenant_id: string;
+        tenant_name: string;
         role: string;
         password_hash: string | null;
         user_status: string;
@@ -98,7 +100,9 @@ export async function registerAuthRoutes(app: FastifyInstance) {
         `
           SELECT
             users.id AS user_id,
+            users.full_name,
             tenant_memberships.tenant_id,
+            tenants.legal_name AS tenant_name,
             tenant_memberships.role::text,
             user_identities.password_hash,
             users.status AS user_status,
@@ -109,6 +113,8 @@ export async function registerAuthRoutes(app: FastifyInstance) {
            AND user_identities.provider = 'password'
           JOIN tenant_memberships
             ON tenant_memberships.user_id = users.id
+          JOIN tenants
+            ON tenants.id = tenant_memberships.tenant_id
           WHERE users.email = $1
           ORDER BY tenant_memberships.created_at ASC
           LIMIT 1
@@ -130,6 +136,9 @@ export async function registerAuthRoutes(app: FastifyInstance) {
 
       return ok({
         mfaRequired: false,
+        user: { id: account.user_id, email: input.email, fullName: account.full_name },
+        tenant: { id: account.tenant_id, legalName: account.tenant_name },
+        role: account.role,
         accessToken: await signAccessToken(account.user_id, account.tenant_id, account.role),
         refreshToken: await signRefreshToken(account.user_id),
         expiresIn: 600
@@ -138,6 +147,9 @@ export async function registerAuthRoutes(app: FastifyInstance) {
 
     return ok({
       mfaRequired: false,
+      user: { id: demoUserId, email: input.email, fullName: "Demo Admin" },
+      tenant: { id: demoTenantId, legalName: "Repassify Demo" },
+      role: "owner",
       accessToken: await signAccessToken(),
       refreshToken: await signRefreshToken(),
       expiresIn: 600

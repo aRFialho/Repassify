@@ -585,6 +585,7 @@ img {
   min-height: 360px;
   display: grid;
   align-content: start;
+  gap: 14px;
 }
 
 .module-state {
@@ -609,6 +610,151 @@ img {
   margin: 0;
   color: #5e7195;
   line-height: 1.5;
+}
+
+.module-note {
+  margin: 0;
+  color: #5e7195;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.primary-mini,
+.file-action {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  color: #ffffff;
+  background: linear-gradient(180deg, #0b48d9, #082d85);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.file-action {
+  position: relative;
+  overflow: hidden;
+}
+
+.file-action input {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.module-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.module-metrics div {
+  min-height: 74px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid #dce6f4;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.module-metrics span {
+  color: #5e7195;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.module-metrics strong {
+  color: #071f63;
+  font-size: 18px;
+}
+
+.module-table-wrap {
+  overflow-x: auto;
+}
+
+.module-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+}
+
+.module-table th,
+.module-table td {
+  padding: 11px 10px;
+  border-bottom: 1px solid #e3ebf5;
+  color: #142f65;
+  text-align: left;
+  font-size: 12px;
+}
+
+.module-table th {
+  color: #52698f;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  border: 1px dashed #c9d7ea;
+  border-radius: 10px;
+  color: #5e7195;
+  background: #f8fbff;
+  text-align: center;
+}
+
+.rules-list.expanded .rule-row {
+  grid-template-columns: 28px minmax(120px, 1fr) 14px minmax(120px, 0.7fr) 76px;
+}
+
+.rule-row button,
+.audit-list button {
+  min-height: 28px;
+  border: 1px solid #dce6f4;
+  border-radius: 7px;
+  color: #0b48d9;
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.audit-list {
+  display: grid;
+  gap: 10px;
+}
+
+.audit-list article {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  border: 1px solid #dce6f4;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.audit-list strong {
+  color: #071f63;
+}
+
+.audit-list span {
+  color: #b20f26;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.audit-list p {
+  margin: 0;
+  color: #5e7195;
+  line-height: 1.45;
 }
 
 .kpi-grid {

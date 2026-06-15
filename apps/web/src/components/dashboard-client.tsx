@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bell,
   Bot,
@@ -29,6 +29,30 @@ import {
   Wallet,
   Workflow,
 } from "lucide-react";
+import {
+  confirmImport,
+  createChannel,
+  createCompany,
+  createImport,
+  createRule,
+  exportErp,
+  getCashflowReport,
+  getChannels,
+  getCompanies,
+  getDreReport,
+  getImports,
+  getIssues,
+  getPayouts,
+  getRules,
+  getTenant,
+  getUsers,
+  inviteUser,
+  previewImport,
+  runReconciliation,
+  simulateRule,
+  updateIssue,
+  type ApiSession,
+} from "@/lib/api";
 
 const navItems = [
   { label: "Dashboard", icon: Home },
@@ -195,9 +219,42 @@ const rules = [
 
 interface DashboardClientProps {
   apiStatus: "checking" | "online" | "offline";
-  userEmail: string;
+  session: ApiSession & {
+    email: string;
+    fullName: string;
+    tenantName: string;
+    role: string;
+  };
   onLogout: () => void;
 }
+
+type AnyRecord = Record<string, unknown>;
+
+interface WorkspaceState {
+  payouts: AnyRecord[];
+  imports: AnyRecord[];
+  rules: AnyRecord[];
+  companies: AnyRecord[];
+  channels: AnyRecord[];
+  issues: AnyRecord[];
+  users: AnyRecord[];
+  dre: AnyRecord | null;
+  cashflow: AnyRecord | null;
+  tenant: AnyRecord | null;
+}
+
+const emptyWorkspace: WorkspaceState = {
+  payouts: [],
+  imports: [],
+  rules: [],
+  companies: [],
+  channels: [],
+  issues: [],
+  users: [],
+  dre: null,
+  cashflow: null,
+  tenant: null,
+};
 
 function ChannelBadge({ name }: { name: string }) {
   const channel = channels.find((item) => item.name === name);
@@ -211,14 +268,441 @@ function ChannelBadge({ name }: { name: string }) {
   );
 }
 
+function getString(row: AnyRecord, key: string, fallback = "-") {
+  const value = row[key];
+  return typeof value === "string" || typeof value === "number" ? String(value) : fallback;
+}
+
+function getMoney(row: AnyRecord, key: string) {
+  const value = row[key];
+  const number = typeof value === "number" ? value : Number(value ?? 0);
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(number);
+}
+
+function makeValidCnpj(seed: number) {
+  const base = String(100000000000 + (seed % 899999999999)).padStart(12, "0").slice(0, 12);
+  const digits = base.split("").map(Number);
+  const calc = (values: number[], weights: number[]) => {
+    const sum = weights.reduce((total, weight, index) => total + weight * (values[index] ?? 0), 0);
+    const mod = sum % 11;
+    return mod < 2 ? 0 : 11 - mod;
+  };
+  const first = calc(digits, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const second = calc([...digits, first], [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  return `${base}${first}${second}`;
+}
+
+function SimpleRows({ rows, columns }: { rows: AnyRecord[]; columns: Array<{ key: string; label: string }> }) {
+  if (!rows.length) {
+    return <div className="empty-state">Nenhum registro encontrado. Use as ações desta aba para criar dados.</div>;
+  }
+
+  return (
+    <div className="module-table-wrap">
+      <table className="module-table">
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column.key}>{column.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.slice(0, 8).map((row, index) => (
+            <tr key={getString(row, "id", String(index))}>
+              {columns.map((column) => (
+                <td key={column.key}>{getString(row, column.key)}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MetricStrip({ items }: { items: Array<{ label: string; value: string }> }) {
+  return (
+    <div className="module-metrics">
+      {items.map((item) => (
+        <div key={item.label}>
+          <span>{item.label}</span>
+          <strong>{item.value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WorkspaceModule({
+  actionMessage,
+  onCreateChannel,
+  onCreateCompany,
+  onCreateRule,
+  onExportErp,
+  onImportFile,
+  onInviteUser,
+  onResolveIssue,
+  onRunReconciliation,
+  onSimulateRule,
+  section,
+  status,
+  workspace,
+}: {
+  actionMessage: string;
+  onCreateChannel: () => void;
+  onCreateCompany: () => void;
+  onCreateRule: () => void;
+  onExportErp: () => void;
+  onImportFile: (file: File | null) => void;
+  onInviteUser: () => void;
+  onResolveIssue: (issueId: string) => void;
+  onRunReconciliation: () => void;
+  onSimulateRule: (ruleId: string) => void;
+  section: string;
+  status: "loading" | "ready" | "error";
+  workspace: WorkspaceState;
+}) {
+  const panelStatus = status === "loading" ? "Sincronizando..." : actionMessage;
+
+  if (section === "Central de Repasses") {
+    return (
+      <section className="panel module-panel">
+        <PanelHeader title="Central de Repasses">
+          <button className="primary-mini" onClick={onRunReconciliation} type="button">
+            Reprocessar
+          </button>
+        </PanelHeader>
+        <p className="module-note">{panelStatus}</p>
+        <MetricStrip
+          items={[
+            { label: "Repasses carregados", value: String(workspace.payouts.length) },
+            { label: "Divergências", value: String(workspace.issues.length) },
+            { label: "Projetado", value: getMoney(workspace.cashflow ?? {}, "projected") },
+          ]}
+        />
+        <SimpleRows
+          rows={workspace.payouts}
+          columns={[
+            { key: "payoutNumber", label: "Repasse" },
+            { key: "channel", label: "Canal" },
+            { key: "company", label: "Empresa" },
+            { key: "expectedAmount", label: "Esperado" },
+            { key: "receivedAmount", label: "Recebido" },
+            { key: "status", label: "Status" },
+          ]}
+        />
+      </section>
+    );
+  }
+
+  if (section === "Conciliação") {
+    return (
+      <section className="panel module-panel">
+        <PanelHeader title="Conciliação">
+          <label className="file-action">
+            Upload planilha
+            <input
+              accept=".csv,.xlsx,.xls"
+              onChange={(event) => onImportFile(event.target.files?.[0] ?? null)}
+              type="file"
+            />
+          </label>
+          <button className="primary-mini" onClick={onRunReconciliation} type="button">
+            Rodar conciliação
+          </button>
+        </PanelHeader>
+        <p className="module-note">{panelStatus}</p>
+        <SimpleRows
+          rows={workspace.imports}
+          columns={[
+            { key: "sourceName", label: "Origem" },
+            { key: "sourceType", label: "Tipo" },
+            { key: "fileHash", label: "Arquivo" },
+            { key: "status", label: "Status" },
+          ]}
+        />
+      </section>
+    );
+  }
+
+  if (section === "Motor de Regras") {
+    return (
+      <section className="panel module-panel">
+        <PanelHeader title="Motor de Regras">
+          <button className="primary-mini" onClick={onCreateRule} type="button">
+            Criar regra
+          </button>
+        </PanelHeader>
+        <p className="module-note">{panelStatus}</p>
+        <div className="rules-list expanded">
+          {workspace.rules.map((rule, index) => (
+            <div className="rule-row" key={getString(rule, "id", String(index))}>
+              <Workflow size={25} />
+              <span>{getString(rule, "name")}</span>
+              <b>→</b>
+              <strong>{getString(rule, "module", "reconciliation")}</strong>
+              <button onClick={() => onSimulateRule(getString(rule, "id"))} type="button">
+                Simular
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (section === "Canais") {
+    return (
+      <section className="panel module-panel">
+        <PanelHeader title="Canais">
+          <button className="primary-mini" onClick={onCreateChannel} type="button">
+            Conectar canal
+          </button>
+        </PanelHeader>
+        <p className="module-note">{panelStatus}</p>
+        <SimpleRows
+          rows={workspace.channels}
+          columns={[
+            { key: "provider", label: "Canal" },
+            { key: "displayName", label: "Conta" },
+            { key: "externalAccountId", label: "ID externo" },
+            { key: "status", label: "Status" },
+          ]}
+        />
+      </section>
+    );
+  }
+
+  if (section === "Empresas") {
+    return (
+      <section className="panel module-panel">
+        <PanelHeader title="Empresas">
+          <button className="primary-mini" onClick={onCreateCompany} type="button">
+            Nova empresa
+          </button>
+        </PanelHeader>
+        <p className="module-note">{panelStatus}</p>
+        <SimpleRows
+          rows={workspace.companies}
+          columns={[
+            { key: "legalName", label: "Razão social" },
+            { key: "tradeName", label: "Nome fantasia" },
+            { key: "cnpj", label: "CNPJ" },
+            { key: "status", label: "Status" },
+          ]}
+        />
+      </section>
+    );
+  }
+
+  if (section === "Auditoria") {
+    return (
+      <section className="panel module-panel">
+        <PanelHeader title="Auditoria" />
+        <p className="module-note">{panelStatus}</p>
+        <div className="audit-list">
+          {workspace.issues.map((issue, index) => (
+            <article key={getString(issue, "id", String(index))}>
+              <strong>{getString(issue, "issueType")}</strong>
+              <span>{getString(issue, "severity")} · {getMoney(issue, "amountImpact")}</span>
+              <p>{getString(issue, "explanation")}</p>
+              <button onClick={() => onResolveIssue(getString(issue, "id"))} type="button">
+                Resolver
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (section === "Relatórios") {
+    return (
+      <section className="panel module-panel">
+        <PanelHeader title="Relatórios">
+          <button className="primary-mini" onClick={onExportErp} type="button">
+            Exportar ERP
+          </button>
+        </PanelHeader>
+        <p className="module-note">{panelStatus}</p>
+        <MetricStrip
+          items={[
+            { label: "Receita", value: getMoney(workspace.dre ?? {}, "revenue") },
+            { label: "Taxas", value: getMoney(workspace.dre ?? {}, "fees") },
+            { label: "Margem", value: getMoney(workspace.dre ?? {}, "grossMargin") },
+            { label: "Realizado", value: getMoney(workspace.cashflow ?? {}, "realized") },
+          ]}
+        />
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel module-panel">
+      <PanelHeader title="Configurações">
+        <button className="primary-mini" onClick={onInviteUser} type="button">
+          Convidar usuário
+        </button>
+      </PanelHeader>
+      <p className="module-note">{panelStatus}</p>
+      <MetricStrip
+        items={[
+          { label: "Tenant", value: getString(workspace.tenant ?? {}, "legalName", "Repassify") },
+          { label: "Usuários", value: String(workspace.users.length) },
+          { label: "Canais", value: String(workspace.channels.length) },
+        ]}
+      />
+      <SimpleRows
+        rows={workspace.users}
+        columns={[
+          { key: "email", label: "E-mail" },
+          { key: "fullName", label: "Nome" },
+          { key: "role", label: "Perfil" },
+          { key: "status", label: "Status" },
+        ]}
+      />
+    </section>
+  );
+}
+
 export function DashboardClient({
   apiStatus,
-  userEmail,
+  session,
   onLogout,
 }: DashboardClientProps) {
   const [activeSection, setActiveSection] = useState("Dashboard");
   const [query, setQuery] = useState("");
+  const [workspace, setWorkspace] = useState<WorkspaceState>(emptyWorkspace);
+  const [workspaceStatus, setWorkspaceStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [actionMessage, setActionMessage] = useState("Carregando dados operacionais...");
   const normalizedQuery = query.trim().toLowerCase();
+
+  async function refreshWorkspace() {
+    setWorkspaceStatus("loading");
+    try {
+      const [payoutRows, importRows, ruleRows, companyRows, channelRows, issueRows, userRows, dre, cashflow, tenant] =
+        await Promise.all([
+          getPayouts(session),
+          getImports(session),
+          getRules(session),
+          getCompanies(session),
+          getChannels(session),
+          getIssues(session),
+          getUsers(session),
+          getDreReport(session),
+          getCashflowReport(session),
+          getTenant(session),
+        ]);
+
+      setWorkspace({
+        payouts: payoutRows as AnyRecord[],
+        imports: importRows as AnyRecord[],
+        rules: ruleRows as AnyRecord[],
+        companies: companyRows as AnyRecord[],
+        channels: channelRows as AnyRecord[],
+        issues: issueRows as AnyRecord[],
+        users: userRows as AnyRecord[],
+        dre,
+        cashflow,
+        tenant,
+      });
+      setWorkspaceStatus("ready");
+      setActionMessage("Dados sincronizados com a API.");
+    } catch (error) {
+      setWorkspaceStatus("error");
+      setActionMessage(error instanceof Error ? error.message : "Falha ao carregar dados operacionais.");
+    }
+  }
+
+  useEffect(() => {
+    void refreshWorkspace();
+  }, [session.accessToken, session.tenantId]);
+
+  async function runAction(label: string, action: () => Promise<unknown>, shouldRefresh = true) {
+    setActionMessage(`${label}...`);
+    try {
+      const result = await action();
+      setActionMessage(`${label} concluido.`);
+      if (shouldRefresh) {
+        await refreshWorkspace();
+      }
+      return result;
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : `Falha em: ${label}`);
+      return null;
+    }
+  }
+
+  async function handleImportFile(file: File | null) {
+    if (!file) return;
+
+    const created = (await runAction(
+      "Upload registrado",
+      () =>
+        createImport(session, {
+          sourceType: "settlements",
+          sourceName: file.name.includes("Shopee") ? "Shopee" : "Planilha de conciliacao",
+          fileName: file.name,
+          sizeBytes: file.size,
+        }),
+      false,
+    )) as AnyRecord | null;
+
+    if (created?.id) {
+      await previewImport(session, String(created.id));
+      await confirmImport(session, String(created.id), {
+        order_number: "Pedido",
+        gross_amount: "Valor bruto",
+        fee_amount: "Taxas",
+        net_amount: "Liquido",
+      });
+      await refreshWorkspace();
+      setActionMessage("Planilha mapeada e fila de conciliacao criada.");
+    }
+  }
+
+  async function handleCreateCompany() {
+    const suffix = String(Date.now()).slice(-6);
+    await runAction("Empresa criada", () =>
+      createCompany(session, {
+        legalName: `Empresa Repassify ${suffix} Ltda.`,
+        tradeName: `Loja ${suffix}`,
+        cnpj: makeValidCnpj(Date.now()),
+        taxRegime: "simples_nacional",
+        financeOwnerName: session.fullName,
+        financeOwnerEmail: session.email,
+      }),
+    );
+  }
+
+  async function handleCreateChannel() {
+    const providers = ["Shopee", "Mercado Livre", "Amazon", "Magalu"] as const;
+    const provider = providers[workspace.channels.length % providers.length] ?? "Shopee";
+    await runAction("Canal conectado", () =>
+      createChannel(session, {
+        provider,
+        displayName: `${provider} - Conta principal`,
+        externalAccountId: `${provider.toLowerCase().replace(/\s/g, "-")}-${Date.now()}`,
+        status: "active",
+      }),
+    );
+  }
+
+  async function handleCreateRule() {
+    await runAction("Regra criada", () =>
+      createRule(session, {
+        name: `Auditoria automatica ${workspace.rules.length + 1}`,
+        module: "reconciliation",
+        priority: 90,
+        scope: { channel: "Shopee" },
+        definition: {
+          conditions: { all: [{ field: "shippingAmount", operator: "gt", value: 50 }] },
+          actions: [{ type: "mark_audit", severity: "medium" }],
+        },
+      }),
+    );
+  }
 
   const filteredPayouts = useMemo(
     () =>
@@ -240,7 +724,7 @@ export function DashboardClient({
     [normalizedQuery],
   );
 
-  const userName = userEmail.split("@")[0] || "Admin";
+  const userName = session.fullName || session.email.split("@")[0] || "Admin";
   const initials = userName.slice(0, 2).toUpperCase();
 
   return (
@@ -326,16 +810,34 @@ export function DashboardClient({
         </header>
 
         {activeSection !== "Dashboard" ? (
-          <section className="panel module-panel">
-            <PanelHeader title={activeSection} />
-            <div className="module-state">
-              <strong>{activeSection} conectado ao cockpit</strong>
-              <p>
-                Esta area ja responde ao menu e esta pronta para receber as
-                telas de operacao, importacao e auditoria.
-              </p>
-            </div>
-          </section>
+          <WorkspaceModule
+            actionMessage={actionMessage}
+            onCreateChannel={handleCreateChannel}
+            onCreateCompany={handleCreateCompany}
+            onCreateRule={handleCreateRule}
+            onExportErp={() => runAction("Exportacao ERP", () => exportErp(session), false)}
+            onImportFile={handleImportFile}
+            onInviteUser={() =>
+              runAction("Convite enviado", () =>
+                inviteUser(session, {
+                  email: `financeiro+${Date.now()}@repassify.com`,
+                  role: "finance_manager",
+                }),
+              )
+            }
+            onResolveIssue={(issueId) =>
+              runAction("Divergencia atualizada", () => updateIssue(session, issueId, "resolved"))
+            }
+            onRunReconciliation={() =>
+              runAction("Conciliacao iniciada", () => runReconciliation(session), false)
+            }
+            onSimulateRule={(ruleId) =>
+              runAction("Simulacao de regra", () => simulateRule(session, ruleId), false)
+            }
+            section={activeSection}
+            status={workspaceStatus}
+            workspace={workspace}
+          />
         ) : (
           <>
             <section className="kpi-grid">

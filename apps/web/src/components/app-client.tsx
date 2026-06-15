@@ -9,6 +9,10 @@ const sessionKey = "repassify.session";
 
 interface Session {
   email: string;
+  fullName: string;
+  tenantId: string;
+  tenantName: string;
+  role: string;
   accessToken: string;
   refreshToken: string;
 }
@@ -38,6 +42,10 @@ export function AppClient() {
       const auth = await login(email, password);
       const nextSession = {
         email,
+        fullName: auth.user.fullName,
+        tenantId: auth.tenant.id,
+        tenantName: auth.tenant.legalName,
+        role: auth.role,
         accessToken: auth.accessToken,
         refreshToken: auth.refreshToken
       };
@@ -68,5 +76,5 @@ export function AppClient() {
     );
   }
 
-  return <DashboardClient apiStatus={apiStatus} userEmail={session.email} onLogout={handleLogout} />;
+  return <DashboardClient apiStatus={apiStatus} session={session} onLogout={handleLogout} />;
 }

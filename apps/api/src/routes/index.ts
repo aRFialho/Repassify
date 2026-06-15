@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { registerAuthRoutes } from "./auth.js";
+import { registerChannelRoutes } from "./channels.js";
 import { registerCompanyRoutes } from "./companies.js";
 import { registerFeeRuleRoutes } from "./fee-rules.js";
 import { registerHelpRoutes } from "./help.js";
@@ -13,6 +14,7 @@ import { registerUserRoutes } from "./users.js";
 export async function registerRoutes(app: FastifyInstance) {
   await registerAuthRoutes(app);
   await registerTenantRoutes(app);
+  await registerChannelRoutes(app);
   await registerCompanyRoutes(app);
   await registerFeeRuleRoutes(app);
   await registerUserRoutes(app);
