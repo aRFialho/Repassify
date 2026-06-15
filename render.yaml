@@ -2,7 +2,7 @@ services:
   - type: web
     name: repassify-web
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm install && npm run build -w packages/core && npm run build -w apps/web
     startCommand: npm run start -w apps/web
     envVars:
@@ -12,7 +12,7 @@ services:
   - type: web
     name: repassify-api
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm install && npm run build -w packages/core && npm run build -w packages/db && npm run build -w apps/api
     preDeployCommand: npm run db:migrate
     initialDeployHook: npm run db:seed:admin
@@ -33,33 +33,3 @@ services:
         value: Admin Master
       - key: WEB_ORIGIN
         value: https://repassify-web.onrender.com
-
-  - type: worker
-    name: repassify-ingestion-worker
-    runtime: node
-    plan: starter
-    buildCommand: npm install && npm run build -w packages/core && npm run build -w workers/ingestion
-    startCommand: npm run start -w workers/ingestion
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-
-  - type: worker
-    name: repassify-reconciliation-worker
-    runtime: node
-    plan: starter
-    buildCommand: npm install && npm run build -w packages/core && npm run build -w workers/reconciliation
-    startCommand: npm run start -w workers/reconciliation
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-
-  - type: cron
-    name: repassify-nightly-reconciliation
-    runtime: node
-    schedule: "0 5 * * *"
-    buildCommand: npm install && npm run build -w packages/core && npm run build -w workers/reconciliation
-    startCommand: npm run start -w workers/reconciliation -- --mode nightly
-    envVars:
-      - key: DATABASE_URL
-        sync: false
