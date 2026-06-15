@@ -54,8 +54,8 @@ services:
       - key: DATABASE_URL
         sync: false
 
-cronJobs:
-  - name: repassify-nightly-reconciliation
+  - type: cron
+    name: repassify-nightly-reconciliation
     runtime: node
     schedule: "0 5 * * *"
     buildCommand: npm install && npm run build -w packages/core && npm run build -w workers/reconciliation
