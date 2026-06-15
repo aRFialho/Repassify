@@ -13,9 +13,7 @@ services:
     name: repassify-api
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build -w packages/core && npm run build -w packages/db && npm run build -w apps/api
-    preDeployCommand: npm run db:migrate
-    initialDeployHook: npm run db:seed:admin
+    buildCommand: npm install && npm run build -w packages/core && npm run build -w packages/db && npm run db:migrate && npm run db:seed:admin && npm run build -w apps/api
     startCommand: npm run start -w apps/api
     healthCheckPath: /health
     envVars:
