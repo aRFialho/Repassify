@@ -1,0 +1,26 @@
+{
+  "name": "repassify",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Repassify Enterprise SaaS for financial reconciliation of marketplace payouts.",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "workers/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w apps/web",
+    "dev:web": "npm run dev -w apps/web",
+    "dev:api": "npm run dev -w apps/api",
+    "build": "npm run build -w packages/core && npm run build -w packages/db && npm run build -w apps/api && npm run build -w workers/ingestion && npm run build -w workers/reconciliation && npm run build -w workers/export && npm run build -w apps/web",
+    "typecheck": "npm run build -w packages/core && npm run build -w packages/db && npm run typecheck -w apps/api && npm run typecheck -w apps/web",
+    "test": "npm run test -w packages/core && npm run test -w apps/api",
+    "db:migrate": "node packages/db/scripts/migrate.mjs",
+    "db:seed": "node packages/db/scripts/seed.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  }
+}

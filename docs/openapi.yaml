@@ -1,0 +1,124 @@
+openapi: 3.1.0
+info:
+  title: Repassify Enterprise API
+  version: 0.1.0
+servers:
+  - url: http://localhost:3333
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: API status
+  /v1/auth/register:
+    post:
+      summary: Register user and initial tenant
+      responses:
+        "201":
+          description: Registered
+  /v1/auth/login:
+    post:
+      summary: Login with password and optional MFA challenge
+      responses:
+        "200":
+          description: Session or MFA challenge
+  /v1/auth/refresh:
+    post:
+      summary: Rotate refresh token
+      responses:
+        "200":
+          description: New token pair
+  /v1/auth/mfa/setup:
+    post:
+      summary: Create TOTP secret
+      responses:
+        "200":
+          description: TOTP setup
+  /v1/tenants/current:
+    get:
+      summary: Current tenant, plan and limits
+      responses:
+        "200":
+          description: Tenant context
+  /v1/imports:
+    post:
+      summary: Create idempotent import batch
+      responses:
+        "201":
+          description: Import batch
+  /v1/imports/{id}/preview:
+    post:
+      summary: Detect template and preview rows
+      responses:
+        "200":
+          description: Preview result
+  /v1/imports/{id}/confirm:
+    post:
+      summary: Confirm mapping and enqueue processing
+      responses:
+        "202":
+          description: Confirmed
+  /v1/payout-center/summary:
+    get:
+      summary: Payout center summary
+      responses:
+        "200":
+          description: Expected versus received
+  /v1/payout-center/payouts:
+    get:
+      summary: List payouts with filters
+      responses:
+        "200":
+          description: Payout rows
+  /v1/rules:
+    get:
+      summary: List rules
+      responses:
+        "200":
+          description: Rules
+    post:
+      summary: Create rule
+      responses:
+        "201":
+          description: Rule
+  /v1/channel-fee-rules:
+    get:
+      summary: List versioned marketplace commission rules
+      responses:
+        "200":
+          description: Channel fee rules
+    post:
+      summary: Create an editable channel fee rule
+      responses:
+        "201":
+          description: Channel fee rule
+  /v1/channel-fee-rules/resolve:
+    post:
+      summary: Resolve the applicable commission rule for a sale
+      responses:
+        "200":
+          description: Fee resolution and review flags
+  /v1/rules/{id}/simulate:
+    post:
+      summary: Simulate no-code rule
+      responses:
+        "200":
+          description: Simulation impact
+  /v1/companies:
+    get:
+      summary: List companies
+      responses:
+        "200":
+          description: Companies
+    post:
+      summary: Create company
+      responses:
+        "201":
+          description: Company
+  /v1/help/functions/{functionId}:
+    get:
+      summary: Functional help card
+      responses:
+        "200":
+          description: Function documentation

@@ -1,0 +1,60 @@
+services:
+  - type: web
+    name: repassify-web
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build -w packages/core && npm run build -w apps/web
+    startCommand: npm run start -w apps/web
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE_URL
+        fromService:
+          type: web
+          name: repassify-api
+          property: host
+
+  - type: web
+    name: repassify-api
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build -w packages/core && npm run build -w packages/db && npm run build -w apps/api
+    startCommand: npm run start -w apps/api
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_DIRECT
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: WEB_ORIGIN
+        value: https://repassify-web.onrender.com
+
+  - type: worker
+    name: repassify-ingestion-worker
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build -w packages/core && npm run build -w workers/ingestion
+    startCommand: npm run start -w workers/ingestion
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+
+  - type: worker
+    name: repassify-reconciliation-worker
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build -w packages/core && npm run build -w workers/reconciliation
+    startCommand: npm run start -w workers/reconciliation
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+
+cronJobs:
+  - name: repassify-nightly-reconciliation
+    runtime: node
+    schedule: "0 5 * * *"
+    buildCommand: npm install && npm run build -w packages/core && npm run build -w workers/reconciliation
+    startCommand: npm run start -w workers/reconciliation -- --mode nightly
+    envVars:
+      - key: DATABASE_URL
+        sync: false

@@ -1,0 +1,28 @@
+{
+  "name": "Shopee - auditoria de frete alto",
+  "scope": {
+    "channel": "Shopee"
+  },
+  "priority": 100,
+  "conditions": {
+    "all": [
+      {
+        "field": "channel",
+        "operator": "eq",
+        "value": "Shopee"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "type": "mark_audit",
+      "when": {
+        "field": "shippingAmount",
+        "operator": "gt",
+        "value": 50
+      },
+      "reason": "Frete acima de R$ 50 em pedido Shopee",
+      "severity": "medium"
+    }
+  ]
+}
