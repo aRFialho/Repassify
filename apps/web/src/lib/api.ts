@@ -76,6 +76,20 @@ export function getDashboardSummary(session: ApiSession) {
   return apiRequest<Record<string, unknown>>("/v1/payout-center/summary", session);
 }
 
+export function getChannelProviders(session: ApiSession) {
+  return apiRequest<unknown[]>("/v1/channels/providers", session);
+}
+
+export function startChannelAuth(session: ApiSession, provider: string) {
+  return apiRequest<Record<string, unknown>>(`/v1/channels/${encodeURIComponent(provider)}/auth/start`, session);
+}
+
+export function syncChannel(session: ApiSession, provider: string) {
+  return apiRequest<Record<string, unknown>>(`/v1/channels/${encodeURIComponent(provider)}/sync`, session, {
+    method: "POST"
+  });
+}
+
 export function getPayouts(session: ApiSession) {
   return apiRequest<unknown[]>("/v1/payout-center/payouts", session);
 }

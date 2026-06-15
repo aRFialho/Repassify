@@ -3,7 +3,6 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { getRequestContext } from "../http/context.js";
 import { ok } from "../http/response.js";
-import { demoState } from "../repositories/demo.js";
 
 const companySchema = z.object({
   legalName: z.string().min(3),
@@ -44,7 +43,7 @@ export async function registerCompanyRoutes(app: FastifyInstance) {
       return ok(result.rows);
     }
 
-    return ok([demoState.company]);
+    return ok([]);
   });
 
   app.post("/v1/companies", async (request, reply) => {

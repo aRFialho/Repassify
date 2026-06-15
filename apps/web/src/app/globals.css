@@ -757,6 +757,83 @@ img {
   line-height: 1.45;
 }
 
+.channel-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.channel-card {
+  min-height: 150px;
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  align-items: start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dce6f4;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.channel-logo {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--badge-color);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.channel-card strong {
+  display: block;
+  color: #071f63;
+  font-size: 15px;
+}
+
+.channel-card span {
+  display: block;
+  margin-top: 4px;
+  color: #5e7195;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.channel-card em {
+  grid-column: 1 / -1;
+  width: max-content;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.channel-card em.active {
+  color: #047967;
+  background: #c8f7e8;
+}
+
+.channel-card em.inactive {
+  color: #5e7195;
+  background: #edf3fa;
+}
+
+.channel-card button {
+  min-height: 30px;
+  border: 1px solid #dce6f4;
+  border-radius: 7px;
+  color: #0b48d9;
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));

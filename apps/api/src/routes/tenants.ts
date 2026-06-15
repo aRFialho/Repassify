@@ -2,7 +2,6 @@ import { hasDatabase, withTenant } from "@repassify/db";
 import type { FastifyInstance } from "fastify";
 import { getRequestContext } from "../http/context.js";
 import { ok } from "../http/response.js";
-import { demoState } from "../repositories/demo.js";
 
 export async function registerTenantRoutes(app: FastifyInstance) {
   app.get("/v1/tenants/current", async (request) => {
@@ -18,9 +17,9 @@ export async function registerTenantRoutes(app: FastifyInstance) {
         )
       );
 
-      return ok(result.rows[0] ?? demoState.tenant, { role: context.role, permissions: context.permissions });
+      return ok(result.rows[0] ?? null, { role: context.role, permissions: context.permissions });
     }
 
-    return ok(demoState.tenant, { role: context.role, permissions: context.permissions });
+    return ok(null, { role: context.role, permissions: context.permissions });
   });
 }

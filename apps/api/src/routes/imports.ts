@@ -1,8 +1,9 @@
+import { hasDatabase, withTenant } from "@repassify/db";
 import type { FastifyInstance } from "fastify";
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { getRequestContext } from "../http/context.js";
 import { accepted, ok } from "../http/response.js";
-import { demoState } from "../repositories/demo.js";
 
 const createImportSchema = z.object({
   sourceType: z.enum(["sales", "settlements", "bank", "fees", "ads", "returns", "generic"]),
@@ -13,24 +14,59 @@ const createImportSchema = z.object({
 });
 
 export async function registerImportRoutes(app: FastifyInstance) {
-  app.get("/v1/imports", async () => ok(demoState.imports));
+  app.get("/v1/imports", async (request) => {
+    const context = getRequestContext(request);
+
+    if (hasDatabase()) {
+      const result = await withTenant(context.tenantId, (client) =>
+        client.query(
+          `SELECT id, source_type AS "sourceType", source_name AS "sourceName", file_hash AS "fileHash",
+                  status, row_count AS "rowCount", error_count AS "errorCount", mapping_config AS "mappingConfig",
+                  created_at AS "createdAt", processed_at AS "processedAt"
+           FROM import_batches
+           ORDER BY created_at DESC`,
+          []
+        )
+      );
+      return ok(result.rows);
+    }
+
+    return ok([]);
+  });
 
   app.post("/v1/imports", async (request, reply) => {
+    const context = getRequestContext(request);
     const input = createImportSchema.parse(request.body);
     const sha256 = input.sha256 ?? createHash("sha256").update(`${input.fileName}:${input.sizeBytes}`).digest("hex");
-    const alreadyExists = demoState.imports.some((item) => item.fileHash === sha256);
 
-    return reply.code(alreadyExists ? 200 : 201).send(
+    if (hasDatabase()) {
+      const result = await withTenant(context.tenantId, (client) =>
+        client.query(
+          `INSERT INTO import_batches (tenant_id, source_type, source_name, file_hash, status, row_count, stats)
+           VALUES ($1, $2, $3, $4, 'mapping', 0, $5::jsonb)
+           ON CONFLICT (tenant_id, file_hash) DO UPDATE
+             SET source_name = EXCLUDED.source_name
+           RETURNING id, source_type AS "sourceType", source_name AS "sourceName", file_hash AS "fileHash",
+                     status, row_count AS "rowCount", error_count AS "errorCount", created_at AS "createdAt"`,
+          [
+            context.tenantId,
+            input.sourceType,
+            input.sourceName,
+            sha256,
+            JSON.stringify({ fileName: input.fileName, sizeBytes: input.sizeBytes })
+          ]
+        )
+      );
+
+      return reply.code(201).send(ok(result.rows[0]));
+    }
+
+    return reply.code(201).send(
       ok({
-        id: alreadyExists ? "import_existing" : crypto.randomUUID(),
+        id: crypto.randomUUID(),
         ...input,
         sha256,
-        status: alreadyExists ? "uploaded" : "mapping",
-        idempotent: alreadyExists,
-        upload: {
-          mode: "local-dev",
-          storageKey: `tenants/demo/imports/${sha256}/${input.fileName}`
-        }
+        status: "mapping"
       })
     );
   });
@@ -39,22 +75,32 @@ export async function registerImportRoutes(app: FastifyInstance) {
     const params = z.object({ id: z.string() }).parse(request.params);
     return ok({
       importId: params.id,
-      detectedTemplate: "Shopee Settlement v2026",
-      delimiter: ";",
-      encoding: "utf-8",
+      detectedTemplate: null,
+      delimiter: null,
+      encoding: null,
       currency: "BRL",
       requiredFields: ["order_number", "gross_amount", "fee_amount", "shipping_amount", "net_amount"],
-      sampleRows: [
-        { order_number: "SHP-1001", gross_amount: "840,00", shipping_amount: "64,90", net_amount: "589,70" },
-        { order_number: "SHP-1002", gross_amount: "129,90", shipping_amount: "22,50", net_amount: "83,42" }
-      ],
-      errors: [{ row: 17, field: "settlement_date", message: "Data fora do padrao esperado" }]
+      sampleRows: [],
+      errors: []
     });
   });
 
   app.post("/v1/imports/:id/confirm", async (request) => {
+    const context = getRequestContext(request);
     const params = z.object({ id: z.string() }).parse(request.params);
     const mapping = z.record(z.string()).parse(request.body ?? {});
+
+    if (hasDatabase()) {
+      await withTenant(context.tenantId, (client) =>
+        client.query(
+          `UPDATE import_batches
+           SET mapping_config = $3::jsonb, status = 'queued'
+           WHERE tenant_id = $1 AND id = $2`,
+          [context.tenantId, params.id, JSON.stringify(mapping)]
+        )
+      );
+    }
+
     return accepted({ importId: params.id, mapping, jobId: crypto.randomUUID(), status: "queued" });
   });
 }

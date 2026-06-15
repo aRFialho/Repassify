@@ -31,14 +31,15 @@ import {
 } from "lucide-react";
 import {
   confirmImport,
-  createChannel,
   createCompany,
   createImport,
   createRule,
   exportErp,
   getCashflowReport,
+  getChannelProviders,
   getChannels,
   getCompanies,
+  getDashboardSummary,
   getDreReport,
   getImports,
   getIssues,
@@ -50,6 +51,8 @@ import {
   previewImport,
   runReconciliation,
   simulateRule,
+  startChannelAuth,
+  syncChannel,
   updateIssue,
   type ApiSession,
 } from "@/lib/api";
@@ -64,57 +67,6 @@ const navItems = [
   { label: "Auditoria", icon: FileText },
   { label: "Relatórios", icon: FileText },
   { label: "Configurações", icon: Settings },
-];
-
-const kpis = [
-  {
-    label: "Total conciliado",
-    value: "R$ 12,48 mi",
-    delta: "18,6% vs abr/24",
-    trend: "up",
-    icon: LineChart,
-    tone: "mint",
-  },
-  {
-    label: "Repasse previsto",
-    value: "R$ 14,75 mi",
-    delta: "15,2% vs abr/24",
-    trend: "up",
-    icon: CalendarDays,
-    tone: "blue",
-  },
-  {
-    label: "Divergências",
-    value: "R$ 386,7 mil",
-    delta: "7,1% vs abr/24",
-    trend: "down",
-    icon: TriangleAlert,
-    tone: "red",
-  },
-  {
-    label: "Margem real",
-    value: "22,8%",
-    delta: "2,3 p.p. vs abr/24",
-    trend: "up",
-    icon: Percent,
-    tone: "mint",
-  },
-  {
-    label: "Taxa média",
-    value: "15,42%",
-    delta: "0,8 p.p. vs abr/24",
-    trend: "down",
-    icon: Tag,
-    tone: "blue",
-  },
-  {
-    label: "Saldo a liberar",
-    value: "R$ 2,14 mi",
-    delta: "11,4% vs abr/24",
-    trend: "up",
-    icon: Wallet,
-    tone: "teal",
-  },
 ];
 
 const channels = [
@@ -155,68 +107,6 @@ const channels = [
   },
 ];
 
-const mix = [
-  { name: "Shopee", value: "29,2%", color: "#0a2d88" },
-  { name: "Mercado Livre", value: "23,9%", color: "#17d0b0" },
-  { name: "Amazon", value: "19,3%", color: "#0c7d82" },
-  { name: "Magalu", value: "15,1%", color: "#635bff" },
-  { name: "Shein", value: "12,5%", color: "#ff9d1c" },
-];
-
-const recentPayouts = [
-  [
-    "31/05/2024",
-    "Shopee",
-    "Bella Store Ltda.",
-    "#SHO-78291",
-    "R$ 128.950,45",
-    "Conciliado",
-    "ok",
-  ],
-  [
-    "31/05/2024",
-    "Mercado Livre",
-    "Tech House Comercio",
-    "#MEL-99321",
-    "R$ 97.430,10",
-    "Conciliado",
-    "ok",
-  ],
-  [
-    "31/05/2024",
-    "Amazon",
-    "Prime Imports S.A.",
-    "#AMZ-11293",
-    "R$ 85.720,90",
-    "Em auditoria",
-    "audit",
-  ],
-  [
-    "30/05/2024",
-    "Magalu",
-    "Magalu Marketplace",
-    "#MAG-33211",
-    "R$ 63.221,30",
-    "Conciliado",
-    "ok",
-  ],
-  [
-    "30/05/2024",
-    "Shein",
-    "Shein Brasil",
-    "#SHE-87122",
-    "R$ 52.340,60",
-    "Pendente",
-    "pending",
-  ],
-];
-
-const rules = [
-  ["Se canal = Shopee", "Taxa = 20%", "Ativa"],
-  ["Se frete > 50", "Marcar auditoria", "Ativa"],
-  ["Se divergência > 5%", "Notificar time", "Ativa"],
-];
-
 interface DashboardClientProps {
   apiStatus: "checking" | "online" | "offline";
   session: ApiSession & {
@@ -238,6 +128,8 @@ interface WorkspaceState {
   channels: AnyRecord[];
   issues: AnyRecord[];
   users: AnyRecord[];
+  providers: AnyRecord[];
+  summary: AnyRecord | null;
   dre: AnyRecord | null;
   cashflow: AnyRecord | null;
   tenant: AnyRecord | null;
@@ -251,6 +143,8 @@ const emptyWorkspace: WorkspaceState = {
   channels: [],
   issues: [],
   users: [],
+  providers: [],
+  summary: null,
   dre: null,
   cashflow: null,
   tenant: null,
@@ -277,19 +171,6 @@ function getMoney(row: AnyRecord, key: string) {
   const value = row[key];
   const number = typeof value === "number" ? value : Number(value ?? 0);
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(number);
-}
-
-function makeValidCnpj(seed: number) {
-  const base = String(100000000000 + (seed % 899999999999)).padStart(12, "0").slice(0, 12);
-  const digits = base.split("").map(Number);
-  const calc = (values: number[], weights: number[]) => {
-    const sum = weights.reduce((total, weight, index) => total + weight * (values[index] ?? 0), 0);
-    const mod = sum % 11;
-    return mod < 2 ? 0 : 11 - mod;
-  };
-  const first = calc(digits, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
-  const second = calc([...digits, first], [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
-  return `${base}${first}${second}`;
 }
 
 function SimpleRows({ rows, columns }: { rows: AnyRecord[]; columns: Array<{ key: string; label: string }> }) {
@@ -345,6 +226,8 @@ function WorkspaceModule({
   onResolveIssue,
   onRunReconciliation,
   onSimulateRule,
+  onChannelAuth,
+  onChannelSync,
   section,
   status,
   workspace,
@@ -359,6 +242,8 @@ function WorkspaceModule({
   onResolveIssue: (issueId: string) => void;
   onRunReconciliation: () => void;
   onSimulateRule: (ruleId: string) => void;
+  onChannelAuth: (provider: string) => void;
+  onChannelSync: (provider: string) => void;
   section: string;
   status: "loading" | "ready" | "error";
   workspace: WorkspaceState;
@@ -461,15 +346,26 @@ function WorkspaceModule({
           </button>
         </PanelHeader>
         <p className="module-note">{panelStatus}</p>
-        <SimpleRows
-          rows={workspace.channels}
-          columns={[
-            { key: "provider", label: "Canal" },
-            { key: "displayName", label: "Conta" },
-            { key: "externalAccountId", label: "ID externo" },
-            { key: "status", label: "Status" },
-          ]}
-        />
+        <div className="channel-card-grid">
+          {workspace.providers.map((providerRow, index) => {
+            const provider = getString(providerRow, "provider");
+            const connected = workspace.channels.find((channel) => getString(channel, "provider") === provider);
+            return (
+              <article className="channel-card" key={provider}>
+                <div className="channel-logo" style={{ "--badge-color": channels[index]?.color ?? "#0a2d88" } as CSSProperties}>
+                  {provider.slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <strong>{provider}</strong>
+                  <span>{connected ? getString(connected, "displayName") : "Integração inativa"}</span>
+                </div>
+                <em className={connected ? "active" : "inactive"}>{connected ? "Ativa" : "Inativa"}</em>
+                <button onClick={() => onChannelAuth(provider)} type="button">Autenticar</button>
+                <button onClick={() => onChannelSync(provider)} type="button">Sincronizar</button>
+              </article>
+            );
+          })}
+        </div>
       </section>
     );
   }
@@ -576,18 +472,36 @@ export function DashboardClient({
   const [workspace, setWorkspace] = useState<WorkspaceState>(emptyWorkspace);
   const [workspaceStatus, setWorkspaceStatus] = useState<"loading" | "ready" | "error">("loading");
   const [actionMessage, setActionMessage] = useState("Carregando dados operacionais...");
+  const [chartView, setChartView] = useState<"Diario" | "Semanal" | "Mensal">("Diario");
+  const [periodLabel, setPeriodLabel] = useState("Periodo atual");
+  const [assistantPrompt, setAssistantPrompt] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
 
   async function refreshWorkspace() {
     setWorkspaceStatus("loading");
     try {
-      const [payoutRows, importRows, ruleRows, companyRows, channelRows, issueRows, userRows, dre, cashflow, tenant] =
+      const [
+        summary,
+        payoutRows,
+        importRows,
+        ruleRows,
+        companyRows,
+        channelRows,
+        providerRows,
+        issueRows,
+        userRows,
+        dre,
+        cashflow,
+        tenant,
+      ] =
         await Promise.all([
+          getDashboardSummary(session),
           getPayouts(session),
           getImports(session),
           getRules(session),
           getCompanies(session),
           getChannels(session),
+          getChannelProviders(session),
           getIssues(session),
           getUsers(session),
           getDreReport(session),
@@ -601,8 +515,10 @@ export function DashboardClient({
         rules: ruleRows as AnyRecord[],
         companies: companyRows as AnyRecord[],
         channels: channelRows as AnyRecord[],
+        providers: providerRows as AnyRecord[],
         issues: issueRows as AnyRecord[],
         users: userRows as AnyRecord[],
+        summary,
         dre,
         cashflow,
         tenant,
@@ -663,12 +579,25 @@ export function DashboardClient({
   }
 
   async function handleCreateCompany() {
-    const suffix = String(Date.now()).slice(-6);
+    const legalName = window.prompt("Razao social da empresa:");
+    if (!legalName?.trim()) {
+      setActionMessage("Cadastro de empresa cancelado.");
+      return;
+    }
+
+    const tradeName = window.prompt("Nome fantasia:", legalName) ?? legalName;
+    const cnpj = window.prompt("CNPJ, somente numeros:")?.replace(/\D/g, "");
+
+    if (!cnpj || cnpj.length !== 14) {
+      setActionMessage("Informe um CNPJ real com 14 digitos para cadastrar a empresa.");
+      return;
+    }
+
     await runAction("Empresa criada", () =>
       createCompany(session, {
-        legalName: `Empresa Repassify ${suffix} Ltda.`,
-        tradeName: `Loja ${suffix}`,
-        cnpj: makeValidCnpj(Date.now()),
+        legalName: legalName.trim(),
+        tradeName: tradeName.trim(),
+        cnpj,
         taxRegime: "simples_nacional",
         financeOwnerName: session.fullName,
         financeOwnerEmail: session.email,
@@ -677,25 +606,31 @@ export function DashboardClient({
   }
 
   async function handleCreateChannel() {
-    const providers = ["Shopee", "Mercado Livre", "Amazon", "Magalu"] as const;
-    const provider = providers[workspace.channels.length % providers.length] ?? "Shopee";
-    await runAction("Canal conectado", () =>
-      createChannel(session, {
-        provider,
-        displayName: `${provider} - Conta principal`,
-        externalAccountId: `${provider.toLowerCase().replace(/\s/g, "-")}-${Date.now()}`,
-        status: "active",
-      }),
-    );
+    goToSection("Canais", "Escolha um canal e clique em Autenticar. Nenhuma conta e criada sem credenciais reais.");
+  }
+
+  async function handleChannelAuth(provider: string) {
+    await runAction(`Autenticacao ${provider}`, () => startChannelAuth(session, provider), false);
+  }
+
+  async function handleChannelSync(provider: string) {
+    await runAction(`Sincronizacao ${provider}`, () => syncChannel(session, provider), false);
   }
 
   async function handleCreateRule() {
+    const name = window.prompt("Nome da regra:");
+    if (!name?.trim()) {
+      setActionMessage("Criacao de regra cancelada.");
+      return;
+    }
+
+    const channel = window.prompt("Canal da regra (opcional):")?.trim();
     await runAction("Regra criada", () =>
       createRule(session, {
-        name: `Auditoria automatica ${workspace.rules.length + 1}`,
+        name: name.trim(),
         module: "reconciliation",
         priority: 90,
-        scope: { channel: "Shopee" },
+        scope: channel ? { channel } : {},
         definition: {
           conditions: { all: [{ field: "shippingAmount", operator: "gt", value: 50 }] },
           actions: [{ type: "mark_audit", severity: "medium" }],
@@ -704,28 +639,118 @@ export function DashboardClient({
     );
   }
 
+  async function handleInviteUser() {
+    const email = window.prompt("E-mail do usuario:");
+    if (!email?.trim()) {
+      setActionMessage("Convite cancelado.");
+      return;
+    }
+
+    await runAction("Convite enviado", () =>
+      inviteUser(session, {
+        email: email.trim(),
+        role: "finance_manager",
+      }),
+    );
+  }
+
+  function goToSection(section: string, message: string) {
+    setActiveSection(section);
+    setActionMessage(message);
+  }
+
+  function handleAssistantQuestion(question: string) {
+    setAssistantPrompt(question);
+    setActionMessage("Assistente registrou a pergunta. A resposta sera ligada ao endpoint de IA quando configurado.");
+  }
+
+  function handleAssistantSend() {
+    const prompt = assistantPrompt.trim();
+    setActionMessage(
+      prompt
+        ? "Pergunta enviada para analise. Nenhuma resposta automatica foi gerada sem endpoint de IA configurado."
+        : "Digite uma pergunta para o assistente.",
+    );
+  }
+
   const filteredPayouts = useMemo(
     () =>
       normalizedQuery
-        ? recentPayouts.filter((row) =>
-            row.some((value) => value.toLowerCase().includes(normalizedQuery)),
+        ? workspace.payouts.filter((row) =>
+            Object.values(row).some((value) => String(value ?? "").toLowerCase().includes(normalizedQuery)),
           )
-        : recentPayouts,
-    [normalizedQuery],
+        : workspace.payouts,
+    [normalizedQuery, workspace.payouts],
   );
 
   const filteredChannels = useMemo(
     () =>
       normalizedQuery
-        ? channels.filter((channel) =>
-            channel.name.toLowerCase().includes(normalizedQuery),
+        ? workspace.channels.filter((channel) =>
+            getString(channel, "provider").toLowerCase().includes(normalizedQuery),
           )
-        : channels,
-    [normalizedQuery],
+        : workspace.channels,
+    [normalizedQuery, workspace.channels],
   );
 
   const userName = session.fullName || session.email.split("@")[0] || "Admin";
   const initials = userName.slice(0, 2).toUpperCase();
+  const summary = workspace.summary ?? {};
+  const dashboardKpis = [
+    {
+      label: "Total conciliado",
+      value: getMoney(summary, "receivedAmount"),
+      delta: `${workspace.payouts.length} repasses`,
+      trend: "up",
+      icon: LineChart,
+      tone: "mint",
+    },
+    {
+      label: "Repasse previsto",
+      value: getMoney(summary, "expectedNetAmount"),
+      delta: `${workspace.imports.length} imports`,
+      trend: "up",
+      icon: CalendarDays,
+      tone: "blue",
+    },
+    {
+      label: "Divergências",
+      value: getMoney(summary, "differenceAmount"),
+      delta: `${workspace.issues.length} pendencias`,
+      trend: Number(summary.differenceAmount ?? 0) < 0 ? "down" : "up",
+      icon: TriangleAlert,
+      tone: "red",
+    },
+    {
+      label: "Margem real",
+      value: `${Number(summary.marginPercent ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`,
+      delta: "base real",
+      trend: "up",
+      icon: Percent,
+      tone: "mint",
+    },
+    {
+      label: "Taxa média",
+      value:
+        Number(summary.grossAmount ?? 0) > 0
+          ? `${((Number(summary.feeAmount ?? 0) / Number(summary.grossAmount ?? 1)) * 100).toLocaleString("pt-BR", {
+              maximumFractionDigits: 1,
+            })}%`
+          : "0%",
+      delta: "sem fallback",
+      trend: "up",
+      icon: Tag,
+      tone: "blue",
+    },
+    {
+      label: "Saldo a liberar",
+      value: getMoney(summary, "retainedAmount"),
+      delta: `${Number(summary.criticalIssues ?? 0)} criticos`,
+      trend: "up",
+      icon: Wallet,
+      tone: "teal",
+    },
+  ];
 
   return (
     <main className="replica-shell">
@@ -758,7 +783,12 @@ export function DashboardClient({
           </div>
           <strong>Seu ambiente está seguro</strong>
           <p>Dados criptografados e auditoria ativa</p>
-          <button>
+          <button
+            onClick={() =>
+              goToSection("Configurações", "Abra configuracoes para revisar usuarios, permissoes e canais ativos.")
+            }
+            type="button"
+          >
             Saiba mais <span>→</span>
           </button>
         </div>
@@ -786,16 +816,35 @@ export function DashboardClient({
                   ? "verificando"
                   : "offline"}
             </span>
-            <button className="date-filter">
+            <button
+              className="date-filter"
+              onClick={() => {
+                setPeriodLabel(periodLabel === "Periodo atual" ? "Todo historico real" : "Periodo atual");
+                void refreshWorkspace();
+              }}
+              type="button"
+            >
               <CalendarDays size={18} />
-              01/05/2024 - 31/05/2024
+              {periodLabel}
               <ChevronDown size={18} />
             </button>
-            <button className="header-icon notification">
+            <button
+              className="header-icon notification"
+              onClick={() => goToSection("Auditoria", "Abrindo divergencias reais da auditoria.")}
+              type="button"
+            >
               <Bell size={25} />
-              <span>8</span>
+              <span>{workspace.issues.length}</span>
             </button>
-            <button className="header-icon">
+            <button
+              className="header-icon"
+              onClick={() =>
+                setActionMessage(
+                  "Ajuda: use Canais para autenticar, Conciliacao para importar e Auditoria para tratar divergencias.",
+                )
+              }
+              type="button"
+            >
               <CircleHelp size={24} />
             </button>
             <button className="profile-button" onClick={onLogout} type="button">
@@ -815,16 +864,11 @@ export function DashboardClient({
             onCreateChannel={handleCreateChannel}
             onCreateCompany={handleCreateCompany}
             onCreateRule={handleCreateRule}
+            onChannelAuth={handleChannelAuth}
+            onChannelSync={handleChannelSync}
             onExportErp={() => runAction("Exportacao ERP", () => exportErp(session), false)}
             onImportFile={handleImportFile}
-            onInviteUser={() =>
-              runAction("Convite enviado", () =>
-                inviteUser(session, {
-                  email: `financeiro+${Date.now()}@repassify.com`,
-                  role: "finance_manager",
-                }),
-              )
-            }
+            onInviteUser={handleInviteUser}
             onResolveIssue={(issueId) =>
               runAction("Divergencia atualizada", () => updateIssue(session, issueId, "resolved"))
             }
@@ -841,7 +885,7 @@ export function DashboardClient({
         ) : (
           <>
             <section className="kpi-grid">
-              {kpis.map((item) => {
+              {dashboardKpis.map((item) => {
                 const Icon = item.icon;
                 return (
                   <article key={item.label} className="kpi-card">
@@ -867,54 +911,82 @@ export function DashboardClient({
               <article className="panel chart-panel">
                 <PanelHeader title="Evolução dos repasses">
                   <div className="segmented-tabs">
-                    <button className="active">Diário</button>
-                    <button>Semanal</button>
-                    <button>Mensal</button>
+                    {(["Diario", "Semanal", "Mensal"] as const).map((view) => (
+                      <button
+                        className={chartView === view ? "active" : ""}
+                        key={view}
+                        onClick={() => {
+                          setChartView(view);
+                          setActionMessage(`Visualizacao ${view.toLowerCase()} aplicada aos repasses reais.`);
+                        }}
+                        type="button"
+                      >
+                        {view}
+                      </button>
+                    ))}
                   </div>
                   <MoreVertical size={22} />
                 </PanelHeader>
-                <LineAreaChart />
+                {workspace.payouts.length ? (
+                  <SimpleRows
+                    rows={workspace.payouts}
+                    columns={[
+                      { key: "period", label: "Periodo" },
+                      { key: "channel", label: "Canal" },
+                      { key: "expectedAmount", label: "Esperado" },
+                      { key: "receivedAmount", label: "Recebido" },
+                      { key: "differenceAmount", label: "Diferença" },
+                    ]}
+                  />
+                ) : (
+                  <div className="empty-state">Importe planilhas ou sincronize canais para gerar a evolução.</div>
+                )}
               </article>
 
               <article className="panel performance-panel">
                 <PanelHeader title="Performance por canal">
-                  <button className="select-button">
+                  <button
+                    className="select-button"
+                    onClick={() => setActionMessage("Performance calculada pelos canais conectados reais.")}
+                    type="button"
+                  >
                     Valor conciliado <ChevronDown size={16} />
                   </button>
                 </PanelHeader>
                 <div className="performance-list">
                   {filteredChannels.map((channel) => (
-                    <div key={channel.name} className="performance-row">
-                      <ChannelBadge name={channel.name} />
-                      <strong>{channel.name}</strong>
+                    <div key={getString(channel, "id")} className="performance-row">
+                      <ChannelBadge name={getString(channel, "provider")} />
+                      <strong>{getString(channel, "provider")}</strong>
                       <span className="bar">
-                        <i style={{ width: `${channel.percent}%` }} />
+                        <i style={{ width: getString(channel, "status") === "active" ? "100%" : "30%" }} />
                       </span>
-                      <em>{channel.value}</em>
+                      <em>{getString(channel, "status")}</em>
                     </div>
                   ))}
+                  {!filteredChannels.length ? <div className="empty-state">Nenhum canal conectado.</div> : null}
                 </div>
               </article>
 
               <article className="panel mix-panel">
                 <PanelHeader title="Mix por canal" />
-                <div className="mix-content">
+                {workspace.payouts.length ? <div className="mix-content">
                   <div className="donut">
                     <div>
-                      <strong>R$ 12,48 mi</strong>
+                      <strong>{getMoney(summary, "receivedAmount")}</strong>
                       <span>Total</span>
                     </div>
                   </div>
                   <div className="mix-list">
-                    {mix.map((item) => (
-                      <div key={item.name}>
-                        <span style={{ background: item.color }} />
-                        <p>{item.name}</p>
-                        <strong>{item.value}</strong>
+                    {workspace.channels.slice(0, 5).map((item, index) => (
+                      <div key={getString(item, "id", String(index))}>
+                        <span style={{ background: channels[index]?.color ?? "#0a2d88" }} />
+                        <p>{getString(item, "provider")}</p>
+                        <strong>{getString(item, "status")}</strong>
                       </div>
                     ))}
                   </div>
-                </div>
+                </div> : <div className="empty-state">Sem repasses reais para calcular mix.</div>}
               </article>
 
               <article className="panel payouts-panel">
@@ -933,19 +1005,25 @@ export function DashboardClient({
                   </thead>
                   <tbody>
                     {filteredPayouts.map((row) => (
-                      <tr key={row[3]}>
-                        <td>{row[0]}</td>
+                      <tr key={getString(row, "id")}>
+                        <td>{getString(row, "period")}</td>
                         <td>
-                          <ChannelBadge name={row[1] ?? ""} /> {row[1]}
+                          <ChannelBadge name={getString(row, "channel")} /> {getString(row, "channel")}
                         </td>
-                        <td>{row[2]}</td>
-                        <td>{row[3]}</td>
-                        <td>{row[4]}</td>
+                        <td>{getString(row, "company")}</td>
+                        <td>{getString(row, "payoutNumber")}</td>
+                        <td>{getMoney(row, "receivedAmount")}</td>
                         <td>
-                          <span className={`status ${row[6]}`}>{row[5]}</span>
+                          <span className={`status ${getString(row, "status")}`}>{getString(row, "status")}</span>
                         </td>
                         <td>
-                          <button className="eye-button">
+                          <button
+                            className="eye-button"
+                            onClick={() =>
+                              goToSection("Central de Repasses", `Abrindo repasse ${getString(row, "payoutNumber")}.`)
+                            }
+                            type="button"
+                          >
                             <Eye size={17} />
                           </button>
                         </td>
@@ -953,27 +1031,39 @@ export function DashboardClient({
                     ))}
                   </tbody>
                 </table>
-                <button className="view-all">
+                {!filteredPayouts.length ? <div className="empty-state">Nenhum repasse real importado ou sincronizado.</div> : null}
+                <button
+                  className="view-all"
+                  onClick={() => goToSection("Central de Repasses", "Listando todos os repasses reais.")}
+                  type="button"
+                >
                   Ver todos os repasses <span>→</span>
                 </button>
               </article>
 
               <article className="panel rules-panel">
                 <PanelHeader title="Motor de Regras">
-                  <button className="link-button">Ver todas</button>
+                  <button
+                    className="link-button"
+                    onClick={() => goToSection("Motor de Regras", "Abrindo todas as regras cadastradas.")}
+                    type="button"
+                  >
+                    Ver todas
+                  </button>
                 </PanelHeader>
                 <div className="rules-list">
-                  {rules.map((rule) => (
-                    <div key={rule[0]} className="rule-row">
+                  {workspace.rules.slice(0, 3).map((rule, index) => (
+                    <div key={getString(rule, "id", String(index))} className="rule-row">
                       <Workflow size={25} />
-                      <span>{rule[0]}</span>
+                      <span>{getString(rule, "name")}</span>
                       <b>→</b>
-                      <strong>{rule[1]}</strong>
-                      <em>{rule[2]}</em>
+                      <strong>{getString(rule, "module")}</strong>
+                      <em>{getString(rule, "status")}</em>
                     </div>
                   ))}
+                  {!workspace.rules.length ? <div className="empty-state">Nenhuma regra cadastrada.</div> : null}
                 </div>
-                <button className="new-rule">+ Nova regra</button>
+                <button className="new-rule" onClick={handleCreateRule} type="button">+ Nova regra</button>
               </article>
 
               <article className="assistant-card">
@@ -997,19 +1087,38 @@ export function DashboardClient({
                   </div>
                 </div>
                 <div className="assistant-questions">
-                  <button>
+                  <button
+                    onClick={() => handleAssistantQuestion("O que significa divergencia?")}
+                    type="button"
+                  >
                     O que significa divergência? <span>→</span>
                   </button>
-                  <button>
+                  <button
+                    onClick={() => handleAssistantQuestion("Como funciona a conciliacao?")}
+                    type="button"
+                  >
                     Como funciona a conciliação? <span>→</span>
                   </button>
-                  <button>
+                  <button
+                    onClick={() => handleAssistantQuestion("Quais canais tem mais divergencias?")}
+                    type="button"
+                  >
                     Quais canais têm mais divergências? <span>→</span>
                   </button>
                 </div>
                 <label className="assistant-input">
-                  <input placeholder="Pergunte algo..." />
-                  <button>
+                  <input
+                    onChange={(event) => setAssistantPrompt(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        handleAssistantSend();
+                      }
+                    }}
+                    placeholder="Pergunte algo..."
+                    value={assistantPrompt}
+                  />
+                  <button onClick={handleAssistantSend} type="button">
                     <SendHorizontal size={25} />
                   </button>
                 </label>
@@ -1046,85 +1155,6 @@ function PanelHeader({
         {title} <Info size={16} />
       </h2>
       {children ? <div className="panel-actions">{children}</div> : null}
-    </div>
-  );
-}
-
-function LineAreaChart() {
-  return (
-    <div className="line-chart-wrap">
-      <div className="chart-legend">
-        <span>
-          <i className="solid" /> Valor conciliado (R$)
-        </span>
-        <span>
-          <i className="dash" /> Repasse previsto (R$)
-        </span>
-      </div>
-      <div className="axis-labels">
-        <span>R$ 2,5 mi</span>
-        <span>R$ 2,0 mi</span>
-        <span>R$ 1,5 mi</span>
-        <span>R$ 1,0 mi</span>
-        <span>R$ 0,5 mi</span>
-        <span>R$ 0</span>
-      </div>
-      <svg
-        className="line-chart"
-        viewBox="0 0 760 290"
-        role="img"
-        aria-label="Evolucao dos repasses"
-      >
-        <defs>
-          <linearGradient id="lineFill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#1b5df2" stopOpacity="0.13" />
-            <stop offset="100%" stopColor="#1b5df2" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[35, 78, 121, 164, 207, 250].map((y) => (
-          <line key={y} x1="52" x2="735" y1={y} y2={y} className="grid-line" />
-        ))}
-        {[52, 164, 276, 388, 500, 612, 724].map((x) => (
-          <line
-            key={x}
-            x1={x}
-            x2={x}
-            y1="35"
-            y2="250"
-            className="grid-vertical"
-          />
-        ))}
-        <path
-          className="area-path"
-          d="M52 215 C80 145 105 105 132 132 C160 160 184 145 208 84 C232 62 257 72 278 118 C306 175 331 135 356 74 C384 90 405 86 430 70 C455 108 479 102 503 95 C530 138 558 124 584 86 C610 44 638 112 666 127 C695 150 715 119 735 128 L735 250 L52 250 Z"
-        />
-        <path
-          className="solid-line"
-          d="M52 215 C80 145 105 105 132 132 C160 160 184 145 208 84 C232 62 257 72 278 118 C306 175 331 135 356 74 C384 90 405 86 430 70 C455 108 479 102 503 95 C530 138 558 124 584 86 C610 44 638 112 666 127 C695 150 715 119 735 128"
-        />
-        <path
-          className="dash-line"
-          d="M52 232 C82 170 110 136 138 151 C169 170 190 158 215 119 C242 105 265 102 288 132 C315 152 340 115 365 98 C392 116 412 114 440 108 C465 108 492 104 516 128 C546 145 570 130 597 110 C626 126 654 143 681 158 C706 132 720 120 735 116"
-        />
-        <line x1="503" x2="503" y1="48" y2="250" className="hover-line" />
-        <circle cx="503" cy="95" r="8" className="point-ring" />
-      </svg>
-      <div className="chart-tooltip">
-        <span>21/05/2024</span>
-        <p>Valor conciliado</p>
-        <strong>R$ 1,72 mi</strong>
-        <p>Repasse previsto</p>
-        <strong>R$ 1,58 mi</strong>
-      </div>
-      <div className="chart-dates">
-        <span>01 Mai</span>
-        <span>06 Mai</span>
-        <span>11 Mai</span>
-        <span>16 Mai</span>
-        <span>21 Mai</span>
-        <span>26 Mai</span>
-        <span>31 Mai</span>
-      </div>
     </div>
   );
 }

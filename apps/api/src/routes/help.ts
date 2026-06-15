@@ -1,12 +1,27 @@
+import { hasDatabase, withTenant } from "@repassify/db";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { getRequestContext } from "../http/context.js";
 import { accepted, ok } from "../http/response.js";
-import { demoState } from "../repositories/demo.js";
 
 export async function registerHelpRoutes(app: FastifyInstance) {
   app.get("/v1/help/functions/:functionId", async (request, reply) => {
+    const context = getRequestContext(request);
     const params = z.object({ functionId: z.string() }).parse(request.params);
-    const doc = demoState.functionDocs.find((item) => item.id === params.functionId);
+
+    const doc = hasDatabase()
+      ? (
+          await withTenant(context.tenantId, (client) =>
+            client.query(
+              `SELECT id, module, title, objective, prerequisites, steps, common_errors AS "commonErrors",
+                      permissions, acceptance_criteria AS "acceptanceCriteria", updated_at AS "updatedAt"
+               FROM function_docs
+               WHERE id = $1`,
+              [params.functionId]
+            )
+          )
+        ).rows[0]
+      : null;
 
     if (!doc) {
       return reply.code(404).send({ error: "function_not_found" });

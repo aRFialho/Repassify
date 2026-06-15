@@ -12,10 +12,19 @@ const channelSchema = z.object({
   status: z.enum(["active", "paused", "error"]).default("active")
 });
 
-const demoChannels = [
-  { id: "ch_shopee", provider: "Shopee", displayName: "Shopee Oficial", externalAccountId: "SHP-001", status: "active" },
-  { id: "ch_ml", provider: "Mercado Livre", displayName: "Mercado Livre Full", externalAccountId: "MLB-928", status: "active" },
-  { id: "ch_amazon", provider: "Amazon", displayName: "Amazon Brasil", externalAccountId: "AMZ-BR", status: "paused" }
+const channelProviders = [
+  "Shopee",
+  "Mercado Livre",
+  "Amazon",
+  "Magalu",
+  "Shein",
+  "Americanas",
+  "Casas Bahia",
+  "TikTok Shop",
+  "Carrefour",
+  "MadeiraMadeira",
+  "Netshoes",
+  "AliExpress"
 ];
 
 export async function registerChannelRoutes(app: FastifyInstance) {
@@ -36,7 +45,7 @@ export async function registerChannelRoutes(app: FastifyInstance) {
       return ok(result.rows);
     }
 
-    return ok(demoChannels);
+    return ok([]);
   });
 
   app.post("/v1/channels", async (request, reply) => {
@@ -68,6 +77,38 @@ export async function registerChannelRoutes(app: FastifyInstance) {
     }
 
     return reply.code(201).send(ok({ id: crypto.randomUUID(), ...input }));
+  });
+
+  app.get("/v1/channels/providers", async () =>
+    ok(
+      channelProviders.map((provider) => ({
+        provider,
+        authMode: provider === "Shopee" || provider === "Mercado Livre" ? "oauth" : "manual_credentials",
+        supportsOrderSync: true,
+        supportsSettlementSync: true
+      }))
+    )
+  );
+
+  app.get("/v1/channels/:provider/auth/start", async (request) => {
+    const params = z.object({ provider: z.string().min(2) }).parse(request.params);
+    return ok({
+      provider: params.provider,
+      configured: false,
+      authorizationUrl: null,
+      message: "Credenciais oficiais do canal ainda nao configuradas para iniciar autenticacao."
+    });
+  });
+
+  app.post("/v1/channels/:provider/sync", async (request) => {
+    const params = z.object({ provider: z.string().min(2) }).parse(request.params);
+    return ok({
+      provider: params.provider,
+      status: "not_configured",
+      importedOrders: 0,
+      importedSettlements: 0,
+      message: "Sincronizacao aguardando credenciais reais do marketplace."
+    });
   });
 
   app.patch("/v1/channels/:id/status", async (request) => {
