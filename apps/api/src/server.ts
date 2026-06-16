@@ -28,11 +28,12 @@ export async function buildServer() {
     limits: { fileSize: 50 * 1024 * 1024 }
   });
 
-  app.get("/health", async () => ({
+  app.get("/", { logLevel: "silent" }, async () => ({
     ok: true,
-    service: "repassify-api",
-    checkedAt: new Date().toISOString()
+    service: "repassify-api"
   }));
+
+  app.get("/health", { logLevel: "silent" }, async (_request, reply) => reply.code(204).send());
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, "request_failed");
