@@ -200,3 +200,17 @@ export function inviteUser(session: ApiSession, input: { email: string; role: st
     body: JSON.stringify(input)
   });
 }
+
+export function createAgentConversation(session: ApiSession, input: { functionId: string; title: string }) {
+  return apiRequest<Record<string, unknown>>("/v1/agent/conversations", session, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function sendAgentMessage(session: ApiSession, conversationId: string, content: string) {
+  return apiRequest<Record<string, unknown>>(`/v1/agent/conversations/${conversationId}/messages`, session, {
+    method: "POST",
+    body: JSON.stringify({ content })
+  });
+}

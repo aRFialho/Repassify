@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import {
   confirmImport,
+  createAgentConversation,
   createCompany,
   createImport,
   createRule,
@@ -50,6 +51,7 @@ import {
   inviteUser,
   previewImport,
   runReconciliation,
+  sendAgentMessage,
   simulateRule,
   startChannelAuth,
   syncChannel,
@@ -475,6 +477,11 @@ export function DashboardClient({
   const [chartView, setChartView] = useState<"Diario" | "Semanal" | "Mensal">("Diario");
   const [periodLabel, setPeriodLabel] = useState("Periodo atual");
   const [assistantPrompt, setAssistantPrompt] = useState("");
+  const [assistantConversationId, setAssistantConversationId] = useState<string | null>(null);
+  const [assistantAnswer, setAssistantAnswer] = useState(
+    "Sou seu assistente virtual e estou aqui para explicar cada tela e ajudar nas suas analises.",
+  );
+  const [assistantStatus, setAssistantStatus] = useState<"idle" | "sending">("idle");
   const normalizedQuery = query.trim().toLowerCase();
 
   async function refreshWorkspace() {
@@ -678,18 +685,63 @@ export function DashboardClient({
     setActionMessage(message);
   }
 
+  async function getAssistantConversationId() {
+    if (assistantConversationId) {
+      return assistantConversationId;
+    }
+
+    const conversation = await createAgentConversation(session, {
+      functionId: `workspace.${activeSection.toLowerCase().replace(/\s+/g, "_")}`,
+      title: `Assistente - ${activeSection}`,
+    });
+    const conversationId = getString(conversation, "id", "");
+
+    if (!conversationId) {
+      throw new Error("Nao foi possivel iniciar a conversa do assistente.");
+    }
+
+    setAssistantConversationId(conversationId);
+    return conversationId;
+  }
+
+  async function askAssistant(question: string) {
+    const prompt = question.trim();
+
+    if (!prompt) {
+      setActionMessage("Digite uma pergunta para o assistente.");
+      return;
+    }
+
+    setAssistantPrompt(prompt);
+    setAssistantStatus("sending");
+    setActionMessage("Assistente analisando sua pergunta...");
+
+    try {
+      const conversationId = await getAssistantConversationId();
+      const result = await sendAgentMessage(session, conversationId, prompt);
+      const answer = getString(
+        result,
+        "assistantMessage",
+        "Nao recebi uma resposta do assistente. Tente novamente em instantes.",
+      );
+
+      setAssistantAnswer(answer);
+      setActionMessage("Assistente respondeu.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Assistente indisponivel no momento.";
+      setAssistantAnswer(message);
+      setActionMessage(message);
+    } finally {
+      setAssistantStatus("idle");
+    }
+  }
+
   function handleAssistantQuestion(question: string) {
-    setAssistantPrompt(question);
-    setActionMessage("Assistente registrou a pergunta. A resposta sera ligada ao endpoint de IA quando configurado.");
+    void askAssistant(question);
   }
 
   function handleAssistantSend() {
-    const prompt = assistantPrompt.trim();
-    setActionMessage(
-      prompt
-        ? "Pergunta enviada para analise. Nenhuma resposta automatica foi gerada sem endpoint de IA configurado."
-        : "Digite uma pergunta para o assistente.",
-    );
+    void askAssistant(assistantPrompt);
   }
 
   const filteredPayouts = useMemo(
@@ -1098,27 +1150,27 @@ export function DashboardClient({
                     <Bot size={39} />
                   </div>
                   <div>
-                    <strong>Olá, Lucas!</strong>
-                    <p>
-                      Sou seu assistente virtual e estou aqui para explicar cada
-                      tela e ajudar nas suas análises.
-                    </p>
+                    <strong>Olá, {userName}!</strong>
+                    <p>{assistantStatus === "sending" ? "Analisando sua pergunta..." : assistantAnswer}</p>
                   </div>
                 </div>
                 <div className="assistant-questions">
                   <button
+                    disabled={assistantStatus === "sending"}
                     onClick={() => handleAssistantQuestion("O que significa divergencia?")}
                     type="button"
                   >
                     O que significa divergência? <span>→</span>
                   </button>
                   <button
+                    disabled={assistantStatus === "sending"}
                     onClick={() => handleAssistantQuestion("Como funciona a conciliacao?")}
                     type="button"
                   >
                     Como funciona a conciliação? <span>→</span>
                   </button>
                   <button
+                    disabled={assistantStatus === "sending"}
                     onClick={() => handleAssistantQuestion("Quais canais tem mais divergencias?")}
                     type="button"
                   >
@@ -1127,6 +1179,7 @@ export function DashboardClient({
                 </div>
                 <label className="assistant-input">
                   <input
+                    disabled={assistantStatus === "sending"}
                     onChange={(event) => setAssistantPrompt(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
@@ -1137,7 +1190,7 @@ export function DashboardClient({
                     placeholder="Pergunte algo..."
                     value={assistantPrompt}
                   />
-                  <button onClick={handleAssistantSend} type="button">
+                  <button disabled={assistantStatus === "sending"} onClick={handleAssistantSend} type="button">
                     <SendHorizontal size={25} />
                   </button>
                 </label>

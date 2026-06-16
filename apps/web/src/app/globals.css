@@ -1589,6 +1589,13 @@ img {
   background: transparent;
 }
 
+.assistant-questions button:disabled,
+.assistant-input input:disabled,
+.assistant-input button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
 .replica-footer {
   min-height: 36px;
   display: flex;
