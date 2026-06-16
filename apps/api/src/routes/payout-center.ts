@@ -22,6 +22,7 @@ const emptySummary = {
 export async function registerPayoutCenterRoutes(app: FastifyInstance) {
   app.get("/v1/payout-center/summary", async (request) => {
     const context = getRequestContext(request);
+    const query = z.object({ periodStart: z.string().optional(), periodEnd: z.string().optional() }).parse(request.query);
 
     if (hasDatabase()) {
       const result = await withTenant(context.tenantId, (client) =>
@@ -36,8 +37,10 @@ export async function registerPayoutCenterRoutes(app: FastifyInstance) {
              COALESCE(sum(difference_amount), 0)::float AS "differenceAmount",
              COALESCE(sum(retained_amount), 0)::float AS "retainedAmount",
              COALESCE(sum((components->>'margin')::numeric), 0)::float AS "realMargin"
-           FROM payouts`,
-          []
+           FROM payouts
+           WHERE ($1::date IS NULL OR period_end >= $1::date)
+             AND ($2::date IS NULL OR period_start <= $2::date)`,
+          [query.periodStart ?? null, query.periodEnd ?? null]
         )
       );
       const issues = await withTenant(context.tenantId, (client) =>
@@ -59,7 +62,14 @@ export async function registerPayoutCenterRoutes(app: FastifyInstance) {
 
   app.get("/v1/payout-center/payouts", async (request) => {
     const context = getRequestContext(request);
-    const query = z.object({ channel: z.string().optional(), status: z.string().optional() }).parse(request.query);
+    const query = z
+      .object({
+        channel: z.string().optional(),
+        status: z.string().optional(),
+        periodStart: z.string().optional(),
+        periodEnd: z.string().optional()
+      })
+      .parse(request.query);
 
     if (hasDatabase()) {
       const result = await withTenant(context.tenantId, (client) =>
@@ -80,8 +90,10 @@ export async function registerPayoutCenterRoutes(app: FastifyInstance) {
            LEFT JOIN companies ON companies.id = payouts.company_id
            WHERE ($1::text IS NULL OR channel_accounts.provider = $1)
              AND ($2::text IS NULL OR payouts.status = $2)
+             AND ($3::date IS NULL OR payouts.period_end >= $3::date)
+             AND ($4::date IS NULL OR payouts.period_start <= $4::date)
            ORDER BY payouts.created_at DESC`,
-          [query.channel ?? null, query.status ?? null]
+          [query.channel ?? null, query.status ?? null, query.periodStart ?? null, query.periodEnd ?? null]
         )
       );
       return ok(result.rows);

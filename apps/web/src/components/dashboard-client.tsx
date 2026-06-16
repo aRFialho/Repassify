@@ -150,6 +150,16 @@ const emptyWorkspace: WorkspaceState = {
   tenant: null,
 };
 
+function getCurrentMonthRange() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+  };
+}
+
 function ChannelBadge({ name }: { name: string }) {
   const channel = channels.find((item) => item.name === name);
   return (
@@ -482,6 +492,10 @@ export function DashboardClient({
   const [actionMessage, setActionMessage] = useState("Carregando dados operacionais...");
   const [chartView, setChartView] = useState<"Diario" | "Semanal" | "Mensal">("Diario");
   const [periodLabel, setPeriodLabel] = useState("Periodo atual");
+  const [periodStart, setPeriodStart] = useState(() => getCurrentMonthRange().start);
+  const [periodEnd, setPeriodEnd] = useState(() => getCurrentMonthRange().end);
+  const [periodOpen, setPeriodOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [assistantPrompt, setAssistantPrompt] = useState("");
   const [assistantConversationId, setAssistantConversationId] = useState<string | null>(null);
   const [assistantAnswer, setAssistantAnswer] = useState(
@@ -517,8 +531,8 @@ export function DashboardClient({
         tenant,
       ] =
         await Promise.all([
-          load("resumo", getDashboardSummary(session), {}),
-          load("repasses", getPayouts(session), []),
+          load("resumo", getDashboardSummary(session, { periodStart, periodEnd }), {}),
+          load("repasses", getPayouts(session, { periodStart, periodEnd }), []),
           load("importacoes", getImports(session), []),
           load("regras", getRules(session), []),
           load("empresas", getCompanies(session), []),
@@ -526,8 +540,8 @@ export function DashboardClient({
           load("provedores", getChannelProviders(session), []),
           load("auditoria", getIssues(session), []),
           load("usuarios", getUsers(session), []),
-          load("dre", getDreReport(session), {}),
-          load("fluxo de caixa", getCashflowReport(session), {}),
+          load("dre", getDreReport(session, { periodStart, periodEnd }), {}),
+          load("fluxo de caixa", getCashflowReport(session, { periodStart, periodEnd }), {}),
           load("tenant", getTenant(session), null),
         ]);
 
@@ -679,7 +693,66 @@ export function DashboardClient({
 
   function goToSection(section: string, message: string) {
     setActiveSection(section);
+    setNotificationsOpen(false);
+    setPeriodOpen(false);
     setActionMessage(message);
+  }
+
+  function formatDateLabel(value: string) {
+    const [year, month, day] = value.split("-");
+    return year && month && day ? `${day}/${month}/${year}` : value;
+  }
+
+  function applyPeriodFilter() {
+    if (!periodStart || !periodEnd) {
+      setActionMessage("Selecione data inicial e final para aplicar o periodo.");
+      return;
+    }
+
+    if (periodStart > periodEnd) {
+      setActionMessage("A data inicial nao pode ser maior que a data final.");
+      return;
+    }
+
+    setPeriodLabel(`${formatDateLabel(periodStart)} - ${formatDateLabel(periodEnd)}`);
+    setPeriodOpen(false);
+    setActionMessage("Periodo aplicado ao dashboard. Os proximos filtros da API usarao este intervalo.");
+    void refreshWorkspace();
+  }
+
+  function resetPeriodFilter() {
+    const range = getCurrentMonthRange();
+    setPeriodLabel("Periodo atual");
+    setPeriodStart(range.start);
+    setPeriodEnd(range.end);
+    setPeriodOpen(false);
+    setActionMessage("Periodo atual restaurado.");
+    void refreshWorkspace();
+  }
+
+  function buildAssistantContext() {
+    return {
+      section: activeSection,
+      period: periodLabel,
+      counts: {
+        payouts: workspace.payouts.length,
+        imports: workspace.imports.length,
+        rules: workspace.rules.length,
+        channels: workspace.channels.length,
+        providers: workspace.providers.length,
+        issues: workspace.issues.length,
+        users: workspace.users.length,
+      },
+      summary: workspace.summary ?? {},
+      dre: workspace.dre ?? {},
+      cashflow: workspace.cashflow ?? {},
+      topIssues: workspace.issues.slice(0, 3).map((issue) => ({
+        issueType: getString(issue, "issueType"),
+        severity: getString(issue, "severity"),
+        amountImpact: issue.amountImpact ?? 0,
+        explanation: getString(issue, "explanation"),
+      })),
+    };
   }
 
   async function getAssistantConversationId() {
@@ -715,7 +788,7 @@ export function DashboardClient({
 
     try {
       const conversationId = await getAssistantConversationId();
-      const result = await sendAgentMessage(session, conversationId, prompt);
+      const result = await sendAgentMessage(session, conversationId, prompt, buildAssistantContext());
       const answer = getString(
         result,
         "assistantMessage",
@@ -884,26 +957,70 @@ export function DashboardClient({
                   ? "verificando"
                   : "offline"}
             </span>
-            <button
-              className="date-filter"
-              onClick={() => {
-                setPeriodLabel(periodLabel === "Periodo atual" ? "Todo historico real" : "Periodo atual");
-                void refreshWorkspace();
-              }}
-              type="button"
-            >
-              <CalendarDays size={18} />
-              {periodLabel}
-              <ChevronDown size={18} />
-            </button>
-            <button
-              className="header-icon notification"
-              onClick={() => goToSection("Auditoria", "Abrindo divergencias reais da auditoria.")}
-              type="button"
-            >
-              <Bell size={25} />
-              <span>{workspace.issues.length}</span>
-            </button>
+            <div className="header-popover-wrap">
+              <button
+                aria-expanded={periodOpen}
+                className="date-filter"
+                onClick={() => {
+                  setPeriodOpen((open) => !open);
+                  setNotificationsOpen(false);
+                }}
+                type="button"
+              >
+                <CalendarDays size={18} />
+                {periodLabel}
+                <ChevronDown size={18} />
+              </button>
+              {periodOpen ? (
+                <div className="header-popover period-popover">
+                  <label>
+                    <span>Inicio</span>
+                    <input onChange={(event) => setPeriodStart(event.target.value)} type="date" value={periodStart} />
+                  </label>
+                  <label>
+                    <span>Fim</span>
+                    <input onChange={(event) => setPeriodEnd(event.target.value)} type="date" value={periodEnd} />
+                  </label>
+                  <div className="popover-actions">
+                    <button onClick={resetPeriodFilter} type="button">Limpar</button>
+                    <button onClick={applyPeriodFilter} type="button">Aplicar</button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <div className="header-popover-wrap">
+              <button
+                aria-expanded={notificationsOpen}
+                className="header-icon notification"
+                onClick={() => {
+                  setNotificationsOpen((open) => !open);
+                  setPeriodOpen(false);
+                }}
+                type="button"
+              >
+                <Bell size={25} />
+                <span>{workspace.issues.length}</span>
+              </button>
+              {notificationsOpen ? (
+                <div className="header-popover notification-popover">
+                  <strong>Notificacoes</strong>
+                  {workspace.issues.length ? (
+                    workspace.issues.slice(0, 5).map((issue, index) => (
+                      <button
+                        key={getString(issue, "id", String(index))}
+                        onClick={() => goToSection("Auditoria", `Abrindo ${getString(issue, "issueType")}.`)}
+                        type="button"
+                      >
+                        <span>{getString(issue, "issueType")}</span>
+                        <small>{getString(issue, "severity")} · {getMoney(issue, "amountImpact")}</small>
+                      </button>
+                    ))
+                  ) : (
+                    <p>Nenhuma divergencia aberta.</p>
+                  )}
+                </div>
+              ) : null}
+            </div>
             <button
               className="header-icon"
               onClick={() =>

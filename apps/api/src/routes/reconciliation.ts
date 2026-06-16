@@ -109,6 +109,7 @@ export async function registerReconciliationRoutes(app: FastifyInstance) {
 
   app.get("/v1/reports/dre", async (request) => {
     const context = getRequestContext(request);
+    const query = z.object({ periodStart: z.string().optional(), periodEnd: z.string().optional() }).parse(request.query);
 
     if (hasDatabase()) {
       const result = await withTenant(context.tenantId, (client) =>
@@ -120,8 +121,10 @@ export async function registerReconciliationRoutes(app: FastifyInstance) {
              COALESCE(sum((components->>'ads')::numeric), 0)::float * -1 AS ads,
              COALESCE(sum((components->>'refund')::numeric), 0)::float * -1 AS refunds,
              COALESCE(sum((components->>'margin')::numeric), 0)::float AS "grossMargin"
-           FROM payouts`,
-          []
+           FROM payouts
+           WHERE ($1::date IS NULL OR period_end >= $1::date)
+             AND ($2::date IS NULL OR period_start <= $2::date)`,
+          [query.periodStart ?? null, query.periodEnd ?? null]
         )
       );
       const row = result.rows[0] ?? {};
@@ -135,6 +138,7 @@ export async function registerReconciliationRoutes(app: FastifyInstance) {
 
   app.get("/v1/reports/cashflow", async (request) => {
     const context = getRequestContext(request);
+    const query = z.object({ periodStart: z.string().optional(), periodEnd: z.string().optional() }).parse(request.query);
 
     if (hasDatabase()) {
       const result = await withTenant(context.tenantId, (client) =>
@@ -144,8 +148,10 @@ export async function registerReconciliationRoutes(app: FastifyInstance) {
              COALESCE(sum(expected_amount) FILTER (WHERE status <> 'received'), 0)::float AS projected,
              COALESCE(sum(retained_amount), 0)::float AS retained,
              COALESCE(sum(expected_amount - received_amount), 0)::float AS "openReceivables"
-           FROM payouts`,
-          []
+           FROM payouts
+           WHERE ($1::date IS NULL OR period_end >= $1::date)
+             AND ($2::date IS NULL OR period_start <= $2::date)`,
+          [query.periodStart ?? null, query.periodEnd ?? null]
         )
       );
       return ok({ period: "current", ...(result.rows[0] ?? {}) });

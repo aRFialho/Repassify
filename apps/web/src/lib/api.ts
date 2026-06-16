@@ -23,6 +23,19 @@ export interface ApiSession {
   tenantId: string;
 }
 
+export interface PeriodFilter {
+  periodStart?: string;
+  periodEnd?: string;
+}
+
+function withPeriod(path: string, period?: PeriodFilter) {
+  const params = new URLSearchParams();
+  if (period?.periodStart) params.set("periodStart", period.periodStart);
+  if (period?.periodEnd) params.set("periodEnd", period.periodEnd);
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
 export async function apiHealth(): Promise<{ ok: boolean; service: string; checkedAt: string }> {
   const response = await fetch(`${apiBaseUrl}/health`, { cache: "no-store" });
 
@@ -72,8 +85,8 @@ export async function apiRequest<T>(
   return body.data;
 }
 
-export function getDashboardSummary(session: ApiSession) {
-  return apiRequest<Record<string, unknown>>("/v1/payout-center/summary", session);
+export function getDashboardSummary(session: ApiSession, period?: PeriodFilter) {
+  return apiRequest<Record<string, unknown>>(withPeriod("/v1/payout-center/summary", period), session);
 }
 
 export function getChannelProviders(session: ApiSession) {
@@ -90,8 +103,8 @@ export function syncChannel(session: ApiSession, provider: string) {
   });
 }
 
-export function getPayouts(session: ApiSession) {
-  return apiRequest<unknown[]>("/v1/payout-center/payouts", session);
+export function getPayouts(session: ApiSession, period?: PeriodFilter) {
+  return apiRequest<unknown[]>(withPeriod("/v1/payout-center/payouts", period), session);
 }
 
 export function getImports(session: ApiSession) {
@@ -200,12 +213,12 @@ export function runReconciliation(session: ApiSession) {
   });
 }
 
-export function getDreReport(session: ApiSession) {
-  return apiRequest<Record<string, unknown>>("/v1/reports/dre", session);
+export function getDreReport(session: ApiSession, period?: PeriodFilter) {
+  return apiRequest<Record<string, unknown>>(withPeriod("/v1/reports/dre", period), session);
 }
 
-export function getCashflowReport(session: ApiSession) {
-  return apiRequest<Record<string, unknown>>("/v1/reports/cashflow", session);
+export function getCashflowReport(session: ApiSession, period?: PeriodFilter) {
+  return apiRequest<Record<string, unknown>>(withPeriod("/v1/reports/cashflow", period), session);
 }
 
 export function exportErp(session: ApiSession) {
@@ -234,9 +247,14 @@ export function createAgentConversation(session: ApiSession, input: { functionId
   });
 }
 
-export function sendAgentMessage(session: ApiSession, conversationId: string, content: string) {
+export function sendAgentMessage(
+  session: ApiSession,
+  conversationId: string,
+  content: string,
+  context?: Record<string, unknown>
+) {
   return apiRequest<Record<string, unknown>>(`/v1/agent/conversations/${conversationId}/messages`, session, {
     method: "POST",
-    body: JSON.stringify({ content })
+    body: JSON.stringify({ content, context })
   });
 }
