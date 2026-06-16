@@ -30,10 +30,8 @@ import {
   Workflow,
 } from "lucide-react";
 import {
-  confirmImport,
   createAgentConversation,
   createCompany,
-  createImport,
   createRule,
   exportErp,
   getCashflowReport,
@@ -49,13 +47,13 @@ import {
   getTenant,
   getUsers,
   inviteUser,
-  previewImport,
   runReconciliation,
   sendAgentMessage,
   simulateRule,
   startChannelAuth,
   syncChannel,
   updateIssue,
+  uploadImportFile,
   type ApiSession,
 } from "@/lib/api";
 
@@ -290,7 +288,7 @@ function WorkspaceModule({
           <label className="file-action">
             Upload planilha
             <input
-              accept=".csv,.xlsx,.xls"
+              accept=".csv,.tsv,.xlsx"
               onChange={(event) => onImportFile(event.target.files?.[0] ?? null)}
               type="file"
             />
@@ -300,12 +298,20 @@ function WorkspaceModule({
           </button>
         </PanelHeader>
         <p className="module-note">{panelStatus}</p>
+        <MetricStrip
+          items={[
+            { label: "Imports processados", value: String(workspace.imports.length) },
+            { label: "Repasses identificados", value: String(workspace.payouts.length) },
+            { label: "Divergências abertas", value: String(workspace.issues.length) },
+          ]}
+        />
         <SimpleRows
           rows={workspace.imports}
           columns={[
             { key: "sourceName", label: "Origem" },
             { key: "sourceType", label: "Tipo" },
-            { key: "fileHash", label: "Arquivo" },
+            { key: "rowCount", label: "Linhas" },
+            { key: "errorCount", label: "Alertas" },
             { key: "status", label: "Status" },
           ]}
         />
@@ -569,28 +575,19 @@ export function DashboardClient({
   async function handleImportFile(file: File | null) {
     if (!file) return;
 
-    const created = (await runAction(
-      "Upload registrado",
-      () =>
-        createImport(session, {
-          sourceType: "settlements",
-          sourceName: file.name.includes("Shopee") ? "Shopee" : "Planilha de conciliacao",
-          fileName: file.name,
-          sizeBytes: file.size,
-        }),
-      false,
-    )) as AnyRecord | null;
+    const imported = (await runAction("Planilha conciliada", () => uploadImportFile(session, file), false)) as
+      | AnyRecord
+      | null;
 
-    if (created?.id) {
-      await previewImport(session, String(created.id));
-      await confirmImport(session, String(created.id), {
-        order_number: "Pedido",
-        gross_amount: "Valor bruto",
-        fee_amount: "Taxas",
-        net_amount: "Liquido",
-      });
+    if (imported?.id) {
       await refreshWorkspace();
-      setActionMessage("Planilha mapeada e fila de conciliacao criada.");
+      setActionMessage(
+        `Planilha processada: ${getString(imported, "rowCount", "0")} linhas, ${getString(
+          imported,
+          "errorCount",
+          "0",
+        )} alertas de leitura.`,
+      );
     }
   }
 

@@ -108,6 +108,32 @@ export function createImport(
   });
 }
 
+export async function uploadImportFile(session: ApiSession, file: File, sourceType = "settlements") {
+  const formData = new FormData();
+  formData.set("file", file);
+  formData.set("sourceType", sourceType);
+  formData.set("sourceName", file.name);
+
+  const response = await fetch(`${apiBaseUrl}/v1/imports/upload`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${session.accessToken}`,
+      "x-tenant-id": session.tenantId
+    },
+    body: formData,
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    const message = typeof body.message === "string" ? body.message : `Falha na API (${response.status}) em /v1/imports/upload.`;
+    throw new Error(message);
+  }
+
+  const body = (await response.json()) as ApiEnvelope<Record<string, unknown>>;
+  return body.data;
+}
+
 export function previewImport(session: ApiSession, importId: string) {
   return apiRequest<Record<string, unknown>>(`/v1/imports/${importId}/preview`, session, { method: "POST" });
 }

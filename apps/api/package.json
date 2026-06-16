@@ -19,6 +19,7 @@
     "@repassify/core": "file:../../packages/core",
     "@repassify/db": "file:../../packages/db",
     "bcryptjs": "^2.4.3",
+    "exceljs": "^4.4.0",
     "fastify": "^5.2.1",
     "jose": "^5.9.6",
     "otplib": "^12.0.1",
