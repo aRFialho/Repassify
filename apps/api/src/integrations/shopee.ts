@@ -23,16 +23,32 @@ interface ShopeeTokenRequest {
   mainAccountId?: string;
 }
 
-function getPartnerId() {
-  return env.SHOPEE_ENV === "live"
-    ? (env.SHOPEE_LIVE_PARTNER_ID ?? env.SHOPEE_PARTNER_ID)
-    : (env.SHOPEE_TEST_PARTNER_ID ?? env.SHOPEE_PARTNER_ID);
+function cleanEnv(value: string | undefined) {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : undefined;
 }
 
-function getPartnerKey() {
-  return env.SHOPEE_ENV === "live"
-    ? (env.SHOPEE_LIVE_PARTNER_KEY ?? env.SHOPEE_PARTNER_KEY)
-    : (env.SHOPEE_TEST_PARTNER_KEY ?? env.SHOPEE_PARTNER_KEY);
+function getShopeeCredentials() {
+  const genericPartnerId = cleanEnv(env.SHOPEE_PARTNER_ID);
+  const genericPartnerKey = cleanEnv(env.SHOPEE_PARTNER_KEY);
+  const sandboxPartnerId = cleanEnv(env.SHOPEE_TEST_PARTNER_ID);
+  const sandboxPartnerKey = cleanEnv(env.SHOPEE_TEST_PARTNER_KEY);
+  const livePartnerId = cleanEnv(env.SHOPEE_LIVE_PARTNER_ID);
+  const livePartnerKey = cleanEnv(env.SHOPEE_LIVE_PARTNER_KEY);
+
+  if (env.SHOPEE_ENV === "live") {
+    return livePartnerId && livePartnerKey
+      ? { partnerId: livePartnerId, partnerKey: livePartnerKey, source: "live" }
+      : genericPartnerId && genericPartnerKey
+        ? { partnerId: genericPartnerId, partnerKey: genericPartnerKey, source: "generic" }
+        : null;
+  }
+
+  return sandboxPartnerId && sandboxPartnerKey
+    ? { partnerId: sandboxPartnerId, partnerKey: sandboxPartnerKey, source: "sandbox" }
+    : genericPartnerId && genericPartnerKey
+      ? { partnerId: genericPartnerId, partnerKey: genericPartnerKey, source: "generic" }
+      : null;
 }
 
 function getShopeeBaseUrl() {
@@ -55,14 +71,7 @@ function signHmac(input: string, secret: string) {
 }
 
 function assertShopeeConfigured() {
-  const partnerId = getPartnerId();
-  const partnerKey = getPartnerKey();
-
-  if (!partnerId || !partnerKey) {
-    return null;
-  }
-
-  return { partnerId, partnerKey };
+  return getShopeeCredentials();
 }
 
 export function isShopeeConfigured() {
@@ -73,8 +82,9 @@ export function getShopeeConfigStatus() {
   return {
     environment: env.SHOPEE_ENV,
     baseUrl: getShopeeBaseUrl(),
-    hasPartnerId: Boolean(getPartnerId()),
-    hasPartnerKey: Boolean(getPartnerKey()),
+    credentialSource: getShopeeCredentials()?.source ?? null,
+    hasPartnerId: Boolean(getShopeeCredentials()?.partnerId),
+    hasPartnerKey: Boolean(getShopeeCredentials()?.partnerKey),
     expectedEnv:
       env.SHOPEE_ENV === "live"
         ? ["SHOPEE_ENV=live", "SHOPEE_LIVE_PARTNER_ID", "SHOPEE_LIVE_PARTNER_KEY", "SHOPEE_REDIRECT_URI"]
