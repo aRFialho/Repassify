@@ -747,6 +747,12 @@ img {
   font-weight: 900;
 }
 
+.primary-mini.secondary {
+  border: 1px solid #c9d7ea;
+  color: var(--blue);
+  background: #ffffff;
+}
+
 .file-action {
   position: relative;
   overflow: hidden;

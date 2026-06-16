@@ -1,4 +1,5 @@
 import { hasDatabase, withTenant } from "@repassify/db";
+import ExcelJS from "exceljs";
 import type { FastifyInstance } from "fastify";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -13,6 +14,46 @@ const createImportSchema = z.object({
   sizeBytes: z.number().int().positive(),
   sha256: z.string().optional()
 });
+
+function numberValue(value: unknown) {
+  const number = typeof value === "number" ? value : Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function componentNumber(components: unknown, key: string) {
+  return components && typeof components === "object" ? numberValue((components as Record<string, unknown>)[key]) : 0;
+}
+
+function componentString(components: unknown, key: string) {
+  const value = components && typeof components === "object" ? (components as Record<string, unknown>)[key] : null;
+  return Array.isArray(value) ? value.join(", ") : typeof value === "string" || typeof value === "number" ? String(value) : "";
+}
+
+function addCurrencyColumns(sheet: ExcelJS.Worksheet, columns: number[]) {
+  for (const columnIndex of columns) {
+    sheet.getColumn(columnIndex).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+  }
+}
+
+function styleSheet(sheet: ExcelJS.Worksheet) {
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  const header = sheet.getRow(1);
+  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF082D85" } };
+  header.alignment = { vertical: "middle", horizontal: "center" };
+  sheet.autoFilter = {
+    from: { row: 1, column: 1 },
+    to: { row: 1, column: sheet.columnCount }
+  };
+
+  for (const column of sheet.columns) {
+    let width = 12;
+    column.eachCell?.({ includeEmpty: true }, (cell) => {
+      width = Math.max(width, String(cell.value ?? "").length + 2);
+    });
+    column.width = Math.min(width, 42);
+  }
+}
 
 export async function registerImportRoutes(app: FastifyInstance) {
   app.get("/v1/imports", async (request) => {
@@ -262,6 +303,221 @@ export async function registerImportRoutes(app: FastifyInstance) {
     });
 
     return reply.code(201).send(ok(result));
+  });
+
+  app.get("/v1/imports/:id/reconciled.xlsx", async (request, reply) => {
+    const context = getRequestContext(request);
+    const params = z.object({ id: z.string().uuid() }).parse(request.params);
+
+    if (!hasDatabase()) {
+      return reply.code(404).send({ error: "export_unavailable", message: "Exportacao disponivel apenas com banco ativo." });
+    }
+
+    const data = await withTenant(context.tenantId, async (client) => {
+      const batch = await client.query(
+        `SELECT id, source_name AS "sourceName", file_hash AS "fileHash", row_count AS "rowCount",
+                error_count AS "errorCount", stats, processed_at AS "processedAt"
+         FROM import_batches
+         WHERE tenant_id = $1 AND id = $2`,
+        [context.tenantId, params.id]
+      );
+
+      const batchRow = batch.rows[0];
+      if (!batchRow) {
+        return null;
+      }
+
+      const payouts = await client.query(
+        `SELECT payouts.id,
+                payouts.payout_number AS "payoutNumber",
+                COALESCE(channel_accounts.provider, 'Sem canal') AS channel,
+                COALESCE(companies.trade_name, companies.legal_name, 'Sem empresa') AS company,
+                payouts.period_start AS "periodStart",
+                payouts.period_end AS "periodEnd",
+                payouts.expected_amount::float AS "expectedAmount",
+                payouts.received_amount::float AS "receivedAmount",
+                payouts.difference_amount::float AS "differenceAmount",
+                payouts.retained_amount::float AS "retainedAmount",
+                payouts.status,
+                payouts.components
+         FROM payouts
+         LEFT JOIN channel_accounts ON channel_accounts.id = payouts.channel_account_id
+         LEFT JOIN companies ON companies.id = payouts.company_id
+         WHERE payouts.tenant_id = $1
+           AND payouts.components->>'importBatchId' = $2
+         ORDER BY payouts.payout_number`,
+        [context.tenantId, params.id]
+      );
+
+      const issues = await client.query(
+        `SELECT reconciliation_issues.id,
+                payouts.payout_number AS "payoutNumber",
+                reconciliation_issues.issue_type AS "issueType",
+                reconciliation_issues.severity,
+                reconciliation_issues.amount_impact::float AS "amountImpact",
+                reconciliation_issues.status,
+                reconciliation_issues.explanation,
+                reconciliation_issues.evidence
+         FROM reconciliation_issues
+         JOIN payouts ON payouts.id = reconciliation_issues.payout_id
+         WHERE reconciliation_issues.tenant_id = $1
+           AND payouts.components->>'importBatchId' = $2
+         ORDER BY reconciliation_issues.created_at DESC`,
+        [context.tenantId, params.id]
+      );
+
+      return { batch: batchRow, payouts: payouts.rows, issues: issues.rows };
+    });
+
+    if (!data) {
+      return reply.code(404).send({ error: "import_not_found", message: "Importacao nao encontrada." });
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Repassify";
+    workbook.created = new Date();
+    workbook.modified = new Date();
+
+    const detail = workbook.addWorksheet("Detalhado");
+    detail.columns = [
+      { header: "Repasse", key: "payoutNumber" },
+      { header: "Canal", key: "channel" },
+      { header: "Empresa", key: "company" },
+      { header: "Periodo inicio", key: "periodStart" },
+      { header: "Periodo fim", key: "periodEnd" },
+      { header: "Valor bruto", key: "gross" },
+      { header: "Taxas", key: "fee" },
+      { header: "Frete", key: "shipping" },
+      { header: "Ads/Campanhas", key: "ads" },
+      { header: "Devolucoes", key: "refund" },
+      { header: "Margem", key: "margin" },
+      { header: "Liquido esperado", key: "expectedAmount" },
+      { header: "Recebido", key: "receivedAmount" },
+      { header: "Diferenca", key: "differenceAmount" },
+      { header: "Retido", key: "retainedAmount" },
+      { header: "Status", key: "status" },
+      { header: "Pedidos", key: "orderNumbers" },
+      { header: "Linhas origem", key: "sourceRows" }
+    ];
+
+    for (const payout of data.payouts) {
+      detail.addRow({
+        payoutNumber: payout.payoutNumber,
+        channel: payout.channel,
+        company: payout.company,
+        periodStart: payout.periodStart,
+        periodEnd: payout.periodEnd,
+        gross: componentNumber(payout.components, "gross"),
+        fee: componentNumber(payout.components, "fee"),
+        shipping: componentNumber(payout.components, "shipping"),
+        ads: componentNumber(payout.components, "ads"),
+        refund: componentNumber(payout.components, "refund"),
+        margin: componentNumber(payout.components, "margin"),
+        expectedAmount: numberValue(payout.expectedAmount),
+        receivedAmount: numberValue(payout.receivedAmount),
+        differenceAmount: numberValue(payout.differenceAmount),
+        retainedAmount: numberValue(payout.retainedAmount),
+        status: payout.status,
+        orderNumbers: componentString(payout.components, "orderNumbers"),
+        sourceRows: componentString(payout.components, "sourceRows")
+      });
+    }
+    addCurrencyColumns(detail, [6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+    styleSheet(detail);
+
+    const issues = workbook.addWorksheet("Divergencias");
+    issues.columns = [
+      { header: "Repasse", key: "payoutNumber" },
+      { header: "Tipo", key: "issueType" },
+      { header: "Severidade", key: "severity" },
+      { header: "Impacto", key: "amountImpact" },
+      { header: "Status", key: "status" },
+      { header: "Explicacao", key: "explanation" },
+      { header: "Evidencias", key: "evidence" }
+    ];
+    for (const issue of data.issues) {
+      issues.addRow({
+        payoutNumber: issue.payoutNumber,
+        issueType: issue.issueType,
+        severity: issue.severity,
+        amountImpact: numberValue(issue.amountImpact),
+        status: issue.status,
+        explanation: issue.explanation,
+        evidence: Array.isArray(issue.evidence)
+          ? issue.evidence
+              .map((item: unknown) => {
+                const evidence = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                return `${String(evidence.label ?? "evidencia")}: ${String(evidence.value ?? "")}`;
+              })
+              .join(" | ")
+          : JSON.stringify(issue.evidence ?? [])
+      });
+    }
+    addCurrencyColumns(issues, [4]);
+    styleSheet(issues);
+
+    const totals = data.payouts.reduce(
+      (acc, payout) => ({
+        gross: acc.gross + componentNumber(payout.components, "gross"),
+        fee: acc.fee + componentNumber(payout.components, "fee"),
+        shipping: acc.shipping + componentNumber(payout.components, "shipping"),
+        ads: acc.ads + componentNumber(payout.components, "ads"),
+        refund: acc.refund + componentNumber(payout.components, "refund"),
+        margin: acc.margin + componentNumber(payout.components, "margin"),
+        expectedAmount: acc.expectedAmount + numberValue(payout.expectedAmount),
+        receivedAmount: acc.receivedAmount + numberValue(payout.receivedAmount),
+        differenceAmount: acc.differenceAmount + numberValue(payout.differenceAmount),
+        retainedAmount: acc.retainedAmount + numberValue(payout.retainedAmount)
+      }),
+      {
+        gross: 0,
+        fee: 0,
+        shipping: 0,
+        ads: 0,
+        refund: 0,
+        margin: 0,
+        expectedAmount: 0,
+        receivedAmount: 0,
+        differenceAmount: 0,
+        retainedAmount: 0
+      }
+    );
+
+    const summary = workbook.addWorksheet("Totais");
+    summary.columns = [
+      { header: "Indicador", key: "label" },
+      { header: "Valor", key: "value" }
+    ];
+    [
+      ["Origem", data.batch.sourceName],
+      ["Arquivo hash", data.batch.fileHash],
+      ["Linhas importadas", numberValue(data.batch.rowCount)],
+      ["Alertas de leitura", numberValue(data.batch.errorCount)],
+      ["Repasses conciliados", data.payouts.length],
+      ["Divergencias geradas", data.issues.length],
+      ["Valor bruto", totals.gross],
+      ["Taxas", totals.fee],
+      ["Frete", totals.shipping],
+      ["Ads/Campanhas", totals.ads],
+      ["Devolucoes", totals.refund],
+      ["Liquido esperado", totals.expectedAmount],
+      ["Recebido", totals.receivedAmount],
+      ["Diferenca", totals.differenceAmount],
+      ["Retido", totals.retainedAmount],
+      ["Margem", totals.margin]
+    ].forEach(([label, value]) => summary.addRow({ label, value }));
+    for (let rowIndex = 7; rowIndex <= summary.rowCount; rowIndex += 1) {
+      summary.getCell(rowIndex, 2).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+    }
+    styleSheet(summary);
+
+    const generated = await workbook.xlsx.writeBuffer();
+    const fileName = `repassify-conciliacao-${params.id}.xlsx`;
+
+    return reply
+      .header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+      .header("Content-Disposition", `attachment; filename="${fileName}"`)
+      .send(Buffer.from(generated));
   });
 
   app.post("/v1/imports", async (request, reply) => {

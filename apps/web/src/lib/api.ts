@@ -147,6 +147,27 @@ export async function uploadImportFile(session: ApiSession, file: File, sourceTy
   return body.data;
 }
 
+export async function getReconciledImportWorkbook(session: ApiSession, importId: string) {
+  const response = await fetch(`${apiBaseUrl}/v1/imports/${encodeURIComponent(importId)}/reconciled.xlsx`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${session.accessToken}`,
+      "x-tenant-id": session.tenantId
+    },
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    const message = typeof body.message === "string" ? body.message : `Falha ao gerar planilha conciliada (${response.status}).`;
+    throw new Error(message);
+  }
+
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const fileName = disposition.match(/filename="([^"]+)"/)?.[1] ?? `repassify-conciliacao-${importId}.xlsx`;
+  return { blob: await response.blob(), fileName };
+}
+
 export function previewImport(session: ApiSession, importId: string) {
   return apiRequest<Record<string, unknown>>(`/v1/imports/${importId}/preview`, session, { method: "POST" });
 }

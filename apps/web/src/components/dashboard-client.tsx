@@ -43,6 +43,7 @@ import {
   getImports,
   getIssues,
   getPayouts,
+  getReconciledImportWorkbook,
   getRules,
   getTenant,
   getUsers,
@@ -230,6 +231,7 @@ function WorkspaceModule({
   onCreateChannel,
   onCreateCompany,
   onCreateRule,
+  onDownloadReconciledImport,
   onExportErp,
   onImportFile,
   onInviteUser,
@@ -246,6 +248,7 @@ function WorkspaceModule({
   onCreateChannel: () => void;
   onCreateCompany: () => void;
   onCreateRule: () => void;
+  onDownloadReconciledImport: (importId: string) => void;
   onExportErp: () => void;
   onImportFile: (file: File | null) => void;
   onInviteUser: () => void;
@@ -292,6 +295,8 @@ function WorkspaceModule({
   }
 
   if (section === "Conciliação") {
+    const latestProcessedImport = workspace.imports.find((row) => getString(row, "status") === "processed");
+
     return (
       <section className="panel module-panel">
         <PanelHeader title="Conciliação">
@@ -306,6 +311,15 @@ function WorkspaceModule({
           <button className="primary-mini" onClick={onRunReconciliation} type="button">
             Rodar conciliação
           </button>
+          {latestProcessedImport ? (
+            <button
+              className="primary-mini secondary"
+              onClick={() => onDownloadReconciledImport(getString(latestProcessedImport, "id"))}
+              type="button"
+            >
+              Baixar planilha conciliada
+            </button>
+          ) : null}
         </PanelHeader>
         <p className="module-note">{panelStatus}</p>
         <MetricStrip
@@ -586,6 +600,33 @@ export function DashboardClient({
     }
   }
 
+  async function handleDownloadReconciledImport(importId: string) {
+    if (!importId || importId === "-") {
+      setActionMessage("Selecione uma importacao processada para baixar a planilha conciliada.");
+      return;
+    }
+
+    const workbook = (await runAction(
+      "Gerando planilha conciliada",
+      () => getReconciledImportWorkbook(session, importId),
+      false,
+    )) as { blob: Blob; fileName: string } | null;
+
+    if (!workbook) {
+      return;
+    }
+
+    const url = window.URL.createObjectURL(workbook.blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = workbook.fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    setActionMessage(`Planilha conciliada gerada: ${workbook.fileName}.`);
+  }
+
   async function handleImportFile(file: File | null) {
     if (!file) return;
 
@@ -595,6 +636,7 @@ export function DashboardClient({
 
     if (imported?.id) {
       await refreshWorkspace();
+      await handleDownloadReconciledImport(String(imported.id));
       setActionMessage(
         `Planilha processada: ${getString(imported, "rowCount", "0")} linhas, ${getString(
           imported,
@@ -1051,6 +1093,7 @@ export function DashboardClient({
             onCreateRule={handleCreateRule}
             onChannelAuth={handleChannelAuth}
             onChannelSync={handleChannelSync}
+            onDownloadReconciledImport={(importId) => void handleDownloadReconciledImport(importId)}
             onExportErp={() => runAction("Exportacao ERP", () => exportErp(session), false)}
             onImportFile={handleImportFile}
             onInviteUser={handleInviteUser}
