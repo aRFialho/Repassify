@@ -117,6 +117,11 @@ export async function registerChannelRoutes(app: FastifyInstance) {
         environment: configStatus.environment,
         baseUrl: configStatus.baseUrl,
         credentialSource: configStatus.credentialSource,
+        partnerIdPreview: configStatus.partnerIdPreview,
+        partnerKeyLength: configStatus.partnerKeyLength,
+        partnerKeyFingerprint: configStatus.partnerKeyFingerprint,
+        signingPath: configStatus.signingPath,
+        signingBasePreview: configStatus.signingBasePreview,
         authorizationUrl,
         callbackUrl:
           process.env.SHOPEE_REDIRECT_URI ??

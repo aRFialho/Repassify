@@ -24,8 +24,24 @@ interface ShopeeTokenRequest {
 }
 
 function cleanEnv(value: string | undefined) {
-  const cleaned = value?.trim();
+  const cleaned = value?.trim().replace(/^["']|["']$/g, "");
   return cleaned ? cleaned : undefined;
+}
+
+function maskValue(value: string | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  return value.length <= 6 ? "***" : `${value.slice(0, 3)}...${value.slice(-3)}`;
+}
+
+function fingerprintValue(value: string | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  return crypto.createHash("sha256").update(value).digest("hex").slice(0, 12);
 }
 
 function getShopeeCredentials() {
@@ -52,12 +68,12 @@ function getShopeeCredentials() {
 }
 
 function getShopeeBaseUrl() {
-  return env.SHOPEE_BASE_URL ?? defaultBaseUrls[env.SHOPEE_ENV];
+  return (cleanEnv(env.SHOPEE_BASE_URL) ?? defaultBaseUrls[env.SHOPEE_ENV]).replace(/\/+$/, "");
 }
 
 function getCallbackUrl() {
   return (
-    process.env.SHOPEE_REDIRECT_URI ??
+    cleanEnv(process.env.SHOPEE_REDIRECT_URI) ??
     `${process.env.API_PUBLIC_URL ?? `http://localhost:${env.PORT}`}/v1/channels/shopee/auth/callback`
   );
 }
@@ -79,12 +95,19 @@ export function isShopeeConfigured() {
 }
 
 export function getShopeeConfigStatus() {
+  const credentials = getShopeeCredentials();
+
   return {
     environment: env.SHOPEE_ENV,
     baseUrl: getShopeeBaseUrl(),
-    credentialSource: getShopeeCredentials()?.source ?? null,
-    hasPartnerId: Boolean(getShopeeCredentials()?.partnerId),
-    hasPartnerKey: Boolean(getShopeeCredentials()?.partnerKey),
+    credentialSource: credentials?.source ?? null,
+    hasPartnerId: Boolean(credentials?.partnerId),
+    hasPartnerKey: Boolean(credentials?.partnerKey),
+    partnerIdPreview: maskValue(credentials?.partnerId),
+    partnerKeyLength: credentials?.partnerKey.length ?? 0,
+    partnerKeyFingerprint: fingerprintValue(credentials?.partnerKey),
+    signingPath: authPath,
+    signingBasePreview: credentials?.partnerId ? `${credentials.partnerId}${authPath}{timestamp}` : null,
     expectedEnv:
       env.SHOPEE_ENV === "live"
         ? ["SHOPEE_ENV=live", "SHOPEE_LIVE_PARTNER_ID", "SHOPEE_LIVE_PARTNER_KEY", "SHOPEE_REDIRECT_URI"]
