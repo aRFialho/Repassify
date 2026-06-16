@@ -63,9 +63,14 @@ export async function registerImportRoutes(app: FastifyInstance) {
       const result = await withTenant(context.tenantId, (client) =>
         client.query(
           `SELECT id, source_type AS "sourceType", source_name AS "sourceName", file_hash AS "fileHash",
+                  import_batches.channel_account_id AS "channelAccountId",
+                  channel_accounts.provider AS channel,
+                  channel_accounts.display_name AS "channelDisplayName",
                   status, row_count AS "rowCount", error_count AS "errorCount", mapping_config AS "mappingConfig",
-                  created_at AS "createdAt", processed_at AS "processedAt"
+                  import_batches.stats,
+                  import_batches.created_at AS "createdAt", import_batches.processed_at AS "processedAt"
            FROM import_batches
+           LEFT JOIN channel_accounts ON channel_accounts.id = import_batches.channel_account_id
            ORDER BY created_at DESC`,
           []
         )
@@ -101,7 +106,29 @@ export async function registerImportRoutes(app: FastifyInstance) {
       .enum(["sales", "settlements", "bank", "fees", "ads", "returns", "generic"])
       .default("settlements")
       .parse(fields.sourceType || "settlements");
-    const sourceName = fields.sourceName?.trim() || fileName;
+    const requestedChannelAccountId = fields.channelAccountId?.trim();
+    let targetChannel: { id: string; provider: string; displayName: string } | null = null;
+
+    if (requestedChannelAccountId && hasDatabase()) {
+      const channelResult = await withTenant(context.tenantId, (client) =>
+        client.query<{ id: string; provider: string; displayName: string }>(
+          `SELECT id, provider, display_name AS "displayName"
+           FROM channel_accounts
+           WHERE tenant_id = $1 AND id = $2 AND status = 'active'`,
+          [context.tenantId, requestedChannelAccountId]
+        )
+      );
+      targetChannel = channelResult.rows[0] ?? null;
+
+      if (!targetChannel) {
+        return reply.code(404).send({
+          error: "channel_not_found",
+          message: "Canal ativo nao encontrado para conciliacao."
+        });
+      }
+    }
+
+    const sourceName = targetChannel?.displayName ?? fields.sourceName?.trim() ?? fileName;
     let prepared;
 
     try {
@@ -121,6 +148,9 @@ export async function registerImportRoutes(app: FastifyInstance) {
           id: crypto.randomUUID(),
           sourceType,
           sourceName,
+          channelAccountId: requestedChannelAccountId ?? null,
+          channel: targetChannel?.provider ?? null,
+          channelDisplayName: targetChannel?.displayName ?? null,
           fileHash: sha256,
           status: "processed",
           rowCount: prepared.rawRows.length,
@@ -135,21 +165,24 @@ export async function registerImportRoutes(app: FastifyInstance) {
     const result = await withTenant(context.tenantId, async (client) => {
       const batch = await client.query(
         `INSERT INTO import_batches (
-           tenant_id, source_type, source_name, file_hash, status, row_count, error_count,
+           tenant_id, channel_account_id, source_type, source_name, file_hash, status, row_count, error_count,
            mapping_config, stats, created_by, processed_at
          )
-         VALUES ($1, $2, $3, $4, 'processing', $5, $6, $7::jsonb, $8::jsonb, $9, now())
+         VALUES ($1, $2, $3, $4, $5, 'processing', $6, $7, $8::jsonb, $9::jsonb, $10, now())
          ON CONFLICT (tenant_id, file_hash) DO UPDATE
-           SET source_name = EXCLUDED.source_name,
+           SET channel_account_id = EXCLUDED.channel_account_id,
+               source_name = EXCLUDED.source_name,
                status = 'processing',
                row_count = EXCLUDED.row_count,
                error_count = EXCLUDED.error_count,
                mapping_config = EXCLUDED.mapping_config,
                stats = EXCLUDED.stats,
                processed_at = now()
-         RETURNING id, source_type AS "sourceType", source_name AS "sourceName", file_hash AS "fileHash"` ,
+         RETURNING id, source_type AS "sourceType", source_name AS "sourceName", file_hash AS "fileHash",
+                   channel_account_id AS "channelAccountId"` ,
         [
           context.tenantId,
+          targetChannel?.id ?? null,
           sourceType,
           sourceName,
           sha256,
@@ -161,7 +194,13 @@ export async function registerImportRoutes(app: FastifyInstance) {
         ]
       );
 
-      const batchRow = batch.rows[0] as { id: string; sourceType: string; sourceName: string; fileHash: string };
+      const batchRow = batch.rows[0] as {
+        id: string;
+        sourceType: string;
+        sourceName: string;
+        fileHash: string;
+        channelAccountId: string | null;
+      };
 
       await client.query(
         `INSERT INTO import_files (tenant_id, batch_id, original_filename, storage_key, mime_type, size_bytes, sha256)
@@ -196,24 +235,28 @@ export async function registerImportRoutes(app: FastifyInstance) {
       let issueCount = 0;
 
       for (const payout of prepared.payouts) {
-        const channel = await client.query<{ id: string }>(
-          `INSERT INTO channel_accounts (tenant_id, provider, external_account_id, display_name, status, settings)
-           VALUES ($1, $2, $3, $4, 'active', $5::jsonb)
-           ON CONFLICT (tenant_id, provider, external_account_id) DO UPDATE
-             SET display_name = EXCLUDED.display_name,
-                 status = 'active',
-                 settings = channel_accounts.settings || EXCLUDED.settings,
-                 updated_at = now()
-           RETURNING id`,
-          [
-            context.tenantId,
-            payout.channel,
-            payout.channel.toLowerCase().replace(/\s+/g, "_"),
-            payout.channel,
-            JSON.stringify({ connected_by: "spreadsheet", last_import_batch_id: batchRow.id })
-          ]
-        );
-        const channelAccountId = channel.rows[0]?.id ?? null;
+        let channelAccountId = targetChannel?.id ?? null;
+
+        if (!channelAccountId) {
+          const channel = await client.query<{ id: string }>(
+            `INSERT INTO channel_accounts (tenant_id, provider, external_account_id, display_name, status, settings)
+             VALUES ($1, $2, $3, $4, 'active', $5::jsonb)
+             ON CONFLICT (tenant_id, provider, external_account_id) DO UPDATE
+               SET display_name = EXCLUDED.display_name,
+                   status = 'active',
+                   settings = channel_accounts.settings || EXCLUDED.settings,
+                   updated_at = now()
+             RETURNING id`,
+            [
+              context.tenantId,
+              payout.channel,
+              payout.channel.toLowerCase().replace(/\s+/g, "_"),
+              payout.channel,
+              JSON.stringify({ connected_by: "spreadsheet", last_import_batch_id: batchRow.id })
+            ]
+          );
+          channelAccountId = channel.rows[0]?.id ?? null;
+        }
 
         const savedPayout = await client.query<{ id: string }>(
           `INSERT INTO payouts (

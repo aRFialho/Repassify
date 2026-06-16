@@ -121,11 +121,18 @@ export function createImport(
   });
 }
 
-export async function uploadImportFile(session: ApiSession, file: File, sourceType = "settlements") {
+export async function uploadImportFile(
+  session: ApiSession,
+  file: File,
+  input: { sourceType?: string; sourceName?: string; channelAccountId?: string } = {}
+) {
   const formData = new FormData();
   formData.set("file", file);
-  formData.set("sourceType", sourceType);
-  formData.set("sourceName", file.name);
+  formData.set("sourceType", input.sourceType ?? "settlements");
+  formData.set("sourceName", input.sourceName ?? file.name);
+  if (input.channelAccountId) {
+    formData.set("channelAccountId", input.channelAccountId);
+  }
 
   const response = await fetch(`${apiBaseUrl}/v1/imports/upload`, {
     method: "POST",

@@ -250,7 +250,7 @@ function WorkspaceModule({
   onCreateRule: () => void;
   onDownloadReconciledImport: (importId: string) => void;
   onExportErp: () => void;
-  onImportFile: (file: File | null) => void;
+  onImportFile: (file: File | null, channel?: AnyRecord) => void;
   onInviteUser: () => void;
   onResolveIssue: (issueId: string) => void;
   onRunReconciliation: () => void;
@@ -296,18 +296,11 @@ function WorkspaceModule({
 
   if (section === "Conciliação") {
     const latestProcessedImport = workspace.imports.find((row) => getString(row, "status") === "processed");
+    const activeChannels = workspace.channels.filter((channel) => getString(channel, "status") === "active");
 
     return (
       <section className="panel module-panel">
         <PanelHeader title="Conciliação">
-          <label className="file-action">
-            Upload planilha
-            <input
-              accept=".csv,.tsv,.xlsx"
-              onChange={(event) => onImportFile(event.target.files?.[0] ?? null)}
-              type="file"
-            />
-          </label>
           <button className="primary-mini" onClick={onRunReconciliation} type="button">
             Rodar conciliação
           </button>
@@ -329,16 +322,91 @@ function WorkspaceModule({
             { label: "Divergências abertas", value: String(workspace.issues.length) },
           ]}
         />
-        <SimpleRows
-          rows={workspace.imports}
-          columns={[
-            { key: "sourceName", label: "Origem" },
-            { key: "sourceType", label: "Tipo" },
-            { key: "rowCount", label: "Linhas" },
-            { key: "errorCount", label: "Alertas" },
-            { key: "status", label: "Status" },
-          ]}
-        />
+        <div className="reconciliation-channel-grid">
+          {activeChannels.map((channel) => {
+            const channelId = getString(channel, "id");
+            const provider = getString(channel, "provider");
+            const displayName = getString(channel, "displayName", provider);
+            const channelImports = workspace.imports.filter((row) => {
+              const rowChannelId = getString(row, "channelAccountId", "");
+              const sourceName = getString(row, "sourceName", "").toLowerCase();
+              return rowChannelId === channelId || sourceName.includes(provider.toLowerCase()) || sourceName.includes(displayName.toLowerCase());
+            });
+            const lastImport = channelImports[0];
+            const channelPayouts = workspace.payouts.filter((row) => getString(row, "channel") === provider);
+            const channelIssueCount = channelImports.reduce((total, row) => {
+              const stats = row.stats && typeof row.stats === "object" ? (row.stats as AnyRecord) : {};
+              return total + Number(stats.issuesCreated ?? stats.issueCount ?? 0);
+            }, 0);
+
+            return (
+              <article className="reconciliation-channel-card" key={channelId}>
+                <div className="reconciliation-channel-head">
+                  <ChannelBadge name={provider} />
+                  <div>
+                    <strong>{provider}</strong>
+                    <span>{displayName}</span>
+                  </div>
+                  <em>Ativa</em>
+                </div>
+                <div className="reconciliation-card-metrics">
+                  <div>
+                    <span>Fila/histórico</span>
+                    <strong>{channelImports.length}</strong>
+                  </div>
+                  <div>
+                    <span>Repasses</span>
+                    <strong>{channelPayouts.length}</strong>
+                  </div>
+                  <div>
+                    <span>Divergências</span>
+                    <strong>{channelIssueCount}</strong>
+                  </div>
+                </div>
+                <div className="reconciliation-card-actions">
+                  <label className="file-action">
+                    Upload do canal
+                    <input
+                      accept=".csv,.tsv,.xlsx"
+                      onChange={(event) => onImportFile(event.target.files?.[0] ?? null, channel)}
+                      type="file"
+                    />
+                  </label>
+                  {lastImport ? (
+                    <button
+                      className="primary-mini secondary"
+                      onClick={() => onDownloadReconciledImport(getString(lastImport, "id"))}
+                      type="button"
+                    >
+                      Baixar última
+                    </button>
+                  ) : null}
+                </div>
+                <div className="reconciliation-history">
+                  {channelImports.length ? (
+                    channelImports.slice(0, 4).map((row, index) => (
+                      <button
+                        key={getString(row, "id", String(index))}
+                        onClick={() => onDownloadReconciledImport(getString(row, "id"))}
+                        type="button"
+                      >
+                        <span>{getString(row, "sourceName")}</span>
+                        <small>
+                          {getString(row, "status")} · {getString(row, "rowCount", "0")} linhas · {getString(row, "errorCount", "0")} alertas
+                        </small>
+                      </button>
+                    ))
+                  ) : (
+                    <p>Nenhuma planilha conciliada para este canal.</p>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+          {!activeChannels.length ? (
+            <div className="empty-state">Nenhum canal ativo. Ative uma integração em Canais para conciliar planilhas por canal.</div>
+          ) : null}
+        </div>
       </section>
     );
   }
@@ -627,10 +695,20 @@ export function DashboardClient({
     setActionMessage(`Planilha conciliada gerada: ${workbook.fileName}.`);
   }
 
-  async function handleImportFile(file: File | null) {
+  async function handleImportFile(file: File | null, channel?: AnyRecord) {
     if (!file) return;
 
-    const imported = (await runAction("Planilha conciliada", () => uploadImportFile(session, file), false)) as
+    const provider = channel ? getString(channel, "provider") : "";
+    const displayName = channel ? getString(channel, "displayName", provider) : file.name;
+    const imported = (await runAction(
+      provider ? `Planilha ${provider} conciliada` : "Planilha conciliada",
+      () =>
+        uploadImportFile(session, file, {
+          channelAccountId: channel ? getString(channel, "id") : undefined,
+          sourceName: displayName,
+        }),
+      false,
+    )) as
       | AnyRecord
       | null;
 
