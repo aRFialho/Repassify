@@ -1,7 +1,11 @@
 import crypto from "node:crypto";
 import { env } from "../config/env.js";
 
-const shopeeBaseUrl = process.env.SHOPEE_BASE_URL ?? "https://partner.shopeemobile.com";
+const defaultBaseUrls = {
+  sandbox: "https://partner.test-stable.shopeemobile.com",
+  live: "https://partner.shopeemobile.com"
+} as const;
+
 const authPath = "/api/v2/shop/auth_partner";
 const tokenPath = "/api/v2/auth/token/get";
 const refreshTokenPath = "/api/v2/auth/access_token/get";
@@ -20,11 +24,19 @@ interface ShopeeTokenRequest {
 }
 
 function getPartnerId() {
-  return process.env.SHOPEE_PARTNER_ID;
+  return env.SHOPEE_ENV === "live"
+    ? (env.SHOPEE_LIVE_PARTNER_ID ?? env.SHOPEE_PARTNER_ID)
+    : (env.SHOPEE_TEST_PARTNER_ID ?? env.SHOPEE_PARTNER_ID);
 }
 
 function getPartnerKey() {
-  return process.env.SHOPEE_PARTNER_KEY;
+  return env.SHOPEE_ENV === "live"
+    ? (env.SHOPEE_LIVE_PARTNER_KEY ?? env.SHOPEE_PARTNER_KEY)
+    : (env.SHOPEE_TEST_PARTNER_KEY ?? env.SHOPEE_PARTNER_KEY);
+}
+
+function getShopeeBaseUrl() {
+  return env.SHOPEE_BASE_URL ?? defaultBaseUrls[env.SHOPEE_ENV];
 }
 
 function getCallbackUrl() {
@@ -55,6 +67,19 @@ function assertShopeeConfigured() {
 
 export function isShopeeConfigured() {
   return Boolean(assertShopeeConfigured());
+}
+
+export function getShopeeConfigStatus() {
+  return {
+    environment: env.SHOPEE_ENV,
+    baseUrl: getShopeeBaseUrl(),
+    hasPartnerId: Boolean(getPartnerId()),
+    hasPartnerKey: Boolean(getPartnerKey()),
+    expectedEnv:
+      env.SHOPEE_ENV === "live"
+        ? ["SHOPEE_ENV=live", "SHOPEE_LIVE_PARTNER_ID", "SHOPEE_LIVE_PARTNER_KEY", "SHOPEE_REDIRECT_URI"]
+        : ["SHOPEE_ENV=sandbox", "SHOPEE_TEST_PARTNER_ID", "SHOPEE_TEST_PARTNER_KEY", "SHOPEE_REDIRECT_URI"]
+  };
 }
 
 export function createShopeeState(input: Pick<ShopeeState, "tenantId" | "userId">) {
@@ -106,7 +131,7 @@ export function buildShopeeAuthorizationUrl(input: Pick<ShopeeState, "tenantId" 
   const callback = new URL(getCallbackUrl());
   callback.searchParams.set("state", createShopeeState(input));
 
-  const url = new URL(`${shopeeBaseUrl}${authPath}`);
+  const url = new URL(`${getShopeeBaseUrl()}${authPath}`);
   url.searchParams.set("partner_id", config.partnerId);
   url.searchParams.set("timestamp", String(timestamp));
   url.searchParams.set("sign", sign);
@@ -123,7 +148,7 @@ export async function exchangeShopeeCode(input: ShopeeTokenRequest) {
 
   const timestamp = Math.floor(Date.now() / 1000);
   const sign = signHmac(`${config.partnerId}${tokenPath}${timestamp}`, config.partnerKey);
-  const url = new URL(`${shopeeBaseUrl}${tokenPath}`);
+  const url = new URL(`${getShopeeBaseUrl()}${tokenPath}`);
   url.searchParams.set("partner_id", config.partnerId);
   url.searchParams.set("timestamp", String(timestamp));
   url.searchParams.set("sign", sign);
@@ -162,6 +187,8 @@ export function getShopeeTokenExpiresAt(expireIn: unknown) {
 }
 
 export const shopeePaths = {
+  environment: env.SHOPEE_ENV,
+  baseUrl: getShopeeBaseUrl(),
   authPath,
   tokenPath,
   refreshTokenPath

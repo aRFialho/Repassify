@@ -8,9 +8,14 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().default("http://localhost:3333/v1/auth/google/callback"),
   API_PUBLIC_URL: z.string().optional(),
+  SHOPEE_ENV: z.enum(["sandbox", "live"]).default("sandbox"),
   SHOPEE_BASE_URL: z.string().optional(),
   SHOPEE_PARTNER_ID: z.string().optional(),
   SHOPEE_PARTNER_KEY: z.string().optional(),
+  SHOPEE_TEST_PARTNER_ID: z.string().optional(),
+  SHOPEE_TEST_PARTNER_KEY: z.string().optional(),
+  SHOPEE_LIVE_PARTNER_ID: z.string().optional(),
+  SHOPEE_LIVE_PARTNER_KEY: z.string().optional(),
   SHOPEE_REDIRECT_URI: z.string().optional()
 });
 

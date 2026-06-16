@@ -6,6 +6,7 @@ import { ok } from "../http/response.js";
 import {
   buildShopeeAuthorizationUrl,
   encryptShopeeCredential,
+  getShopeeConfigStatus,
   exchangeShopeeCode,
   getShopeeTokenExpiresAt,
   isShopeeConfigured,
@@ -108,18 +109,21 @@ export async function registerChannelRoutes(app: FastifyInstance) {
         tenantId: context.tenantId,
         userId: context.userId
       });
+      const configStatus = getShopeeConfigStatus();
 
       return ok({
         provider: "Shopee",
         configured: Boolean(authorizationUrl),
+        environment: configStatus.environment,
+        baseUrl: configStatus.baseUrl,
         authorizationUrl,
         callbackUrl:
           process.env.SHOPEE_REDIRECT_URI ??
           `${process.env.API_PUBLIC_URL ?? "http://localhost:3333"}/v1/channels/shopee/auth/callback`,
-        requiredEnv: ["SHOPEE_PARTNER_ID", "SHOPEE_PARTNER_KEY", "SHOPEE_REDIRECT_URI"],
+        requiredEnv: configStatus.expectedEnv,
         message: authorizationUrl
-          ? "Abra a URL de autorizacao da Shopee para vincular a loja."
-          : "Configure SHOPEE_PARTNER_ID, SHOPEE_PARTNER_KEY e SHOPEE_REDIRECT_URI para iniciar autenticacao."
+          ? `Abra a URL de autorizacao da Shopee em modo ${configStatus.environment} para vincular a loja.`
+          : `Configure ${configStatus.expectedEnv.join(", ")} para iniciar autenticacao Shopee.`
       });
     }
 
