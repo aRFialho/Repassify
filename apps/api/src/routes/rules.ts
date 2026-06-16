@@ -25,10 +25,19 @@ export async function registerRulesRoutes(app: FastifyInstance) {
     if (hasDatabase()) {
       const result = await withTenant(context.tenantId, (client) =>
         client.query(
-          `SELECT id, name, module, priority, scope, definition, status,
-                  current_version AS "currentVersion", created_at AS "createdAt", updated_at AS "updatedAt"
+          `SELECT business_rules.id,
+                  business_rules.name,
+                  rule_sets.module,
+                  business_rules.priority,
+                  business_rules.scope,
+                  business_rules.definition,
+                  business_rules.status,
+                  business_rules.current_version AS "currentVersion",
+                  business_rules.created_at AS "createdAt",
+                  business_rules.updated_at AS "updatedAt"
            FROM business_rules
-           ORDER BY created_at DESC`,
+           JOIN rule_sets ON rule_sets.id = business_rules.rule_set_id
+           ORDER BY business_rules.created_at DESC`,
           []
         )
       );
@@ -53,14 +62,13 @@ export async function registerRulesRoutes(app: FastifyInstance) {
         );
 
         return client.query(
-          `INSERT INTO business_rules (tenant_id, rule_set_id, name, module, priority, scope, definition, status, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, 'draft', $8)
-           RETURNING id, name, module, priority, scope, definition, status, current_version AS "currentVersion"`,
+          `INSERT INTO business_rules (tenant_id, rule_set_id, name, priority, scope, definition, status, created_by)
+           VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, 'draft', $7)
+           RETURNING id, name, priority, scope, definition, status, current_version AS "currentVersion"`,
           [
             context.tenantId,
             ruleSet.rows[0].id,
             input.name,
-            input.module,
             input.priority,
             JSON.stringify(input.scope),
             JSON.stringify(input.definition),
@@ -68,7 +76,7 @@ export async function registerRulesRoutes(app: FastifyInstance) {
           ]
         );
       });
-      return reply.code(201).send(ok(result.rows[0]));
+      return reply.code(201).send(ok({ ...result.rows[0], module: input.module }));
     }
 
     return reply.code(201).send(ok({ id: crypto.randomUUID(), status: "draft", currentVersion: 1, ...input }));

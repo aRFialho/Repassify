@@ -480,6 +480,15 @@ export function DashboardClient({
   async function refreshWorkspace() {
     setWorkspaceStatus("loading");
     try {
+      const load = async <T,>(label: string, promise: Promise<T>, fallback: T) => {
+        try {
+          return await promise;
+        } catch (error) {
+          console.error(`Falha ao carregar ${label}`, error);
+          return fallback;
+        }
+      };
+
       const [
         summary,
         payoutRows,
@@ -495,18 +504,18 @@ export function DashboardClient({
         tenant,
       ] =
         await Promise.all([
-          getDashboardSummary(session),
-          getPayouts(session),
-          getImports(session),
-          getRules(session),
-          getCompanies(session),
-          getChannels(session),
-          getChannelProviders(session),
-          getIssues(session),
-          getUsers(session),
-          getDreReport(session),
-          getCashflowReport(session),
-          getTenant(session),
+          load("resumo", getDashboardSummary(session), {}),
+          load("repasses", getPayouts(session), []),
+          load("importacoes", getImports(session), []),
+          load("regras", getRules(session), []),
+          load("empresas", getCompanies(session), []),
+          load("canais", getChannels(session), []),
+          load("provedores", getChannelProviders(session), []),
+          load("auditoria", getIssues(session), []),
+          load("usuarios", getUsers(session), []),
+          load("dre", getDreReport(session), {}),
+          load("fluxo de caixa", getCashflowReport(session), {}),
+          load("tenant", getTenant(session), null),
         ]);
 
       setWorkspace({
