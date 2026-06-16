@@ -610,7 +610,17 @@ export function DashboardClient({
   }
 
   async function handleChannelAuth(provider: string) {
-    await runAction(`Autenticacao ${provider}`, () => startChannelAuth(session, provider), false);
+    const result = (await runAction(`Autenticacao ${provider}`, () => startChannelAuth(session, provider), false)) as
+      | AnyRecord
+      | null;
+    const authorizationUrl = typeof result?.authorizationUrl === "string" ? result.authorizationUrl : "";
+
+    if (authorizationUrl) {
+      window.location.assign(authorizationUrl);
+      return;
+    }
+
+    setActionMessage(getString(result ?? {}, "message", "Credenciais do canal ainda nao configuradas."));
   }
 
   async function handleChannelSync(provider: string) {

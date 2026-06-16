@@ -31,3 +31,13 @@ services:
         value: Admin Master
       - key: WEB_ORIGIN
         value: https://repassify-web.onrender.com
+      - key: API_PUBLIC_URL
+        value: https://repassify-api.onrender.com
+      - key: SHOPEE_BASE_URL
+        value: https://partner.shopeemobile.com
+      - key: SHOPEE_PARTNER_ID
+        sync: false
+      - key: SHOPEE_PARTNER_KEY
+        sync: false
+      - key: SHOPEE_REDIRECT_URI
+        value: https://repassify-api.onrender.com/v1/channels/shopee/auth/callback
