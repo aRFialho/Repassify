@@ -758,6 +758,21 @@ img {
   overflow: hidden;
 }
 
+.file-action.prominent {
+  min-height: 42px;
+  padding: 0 18px;
+  border: 1px solid #00a878;
+  color: #ffffff;
+  background: linear-gradient(180deg, #10b981, #047967);
+  box-shadow: 0 10px 22px rgba(4, 121, 103, .22);
+  font-size: 13px;
+}
+
+.file-action.prominent:hover {
+  box-shadow: 0 14px 28px rgba(4, 121, 103, .3);
+  transform: translateY(-1px);
+}
+
 .file-action input {
   position: absolute;
   inset: 0;
@@ -898,6 +913,12 @@ img {
   border-radius: 8px;
   background: #f8fbff;
   text-align: left;
+}
+
+.reconciliation-history button:disabled {
+  cursor: wait;
+  border-style: dashed;
+  background: #fffdf3;
 }
 
 .reconciliation-history p {
@@ -1042,6 +1063,18 @@ img {
   background: #e8fff1;
 }
 
+.status-pill.processing {
+  border-color: #c28a00;
+  color: #895d00;
+  background: #fff7db;
+}
+
+.status-pill.danger {
+  border-color: #d72f36;
+  color: #b4232a;
+  background: #fff0f1;
+}
+
 .icon-table-action {
   width: 30px;
   height: 30px;
@@ -1051,6 +1084,22 @@ img {
   margin-right: 6px;
   color: #05964f;
   cursor: pointer;
+}
+
+.icon-table-action:disabled {
+  cursor: not-allowed;
+  color: #9aa8bd;
+  background: #f1f5f9;
+}
+
+.row-log {
+  display: block;
+  max-width: 320px;
+  margin-top: 5px;
+  color: #5e7195;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: normal;
 }
 
 .koncili-summary-grid {

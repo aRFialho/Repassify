@@ -241,8 +241,20 @@ function importStatusLabel(row: AnyRecord) {
   const status = getString(row, "status");
   if (status === "processed") return "Finalizada";
   if (status === "failed") return "Erro";
-  if (status === "processing") return "Processando";
+  if (status === "processing") return "Em processamento";
   return status;
+}
+
+function importLogLines(row: AnyRecord) {
+  const logs = getStats(row).logs;
+  return Array.isArray(logs) ? logs.map((item) => String(item)).filter(Boolean) : [];
+}
+
+function statusPillClass(row: AnyRecord) {
+  const status = getString(row, "status");
+  if (status === "processing") return "status-pill processing";
+  if (status === "failed") return "status-pill danger";
+  return "status-pill success";
 }
 
 function SimpleRows({ rows, columns }: { rows: AnyRecord[]; columns: Array<{ key: string; label: string }> }) {
@@ -517,8 +529,8 @@ function WorkspaceModule({
               <strong>{provider}</strong>
               <span>{displayName}</span>
             </div>
-            <label className="file-action">
-              Upload do canal
+            <label className="file-action prominent">
+              Upload de planilha
               <input accept=".csv,.tsv,.xlsx" onChange={(event) => onImportFile(event.target.files?.[0] ?? null, selectedChannel)} type="file" />
             </label>
           </div>
@@ -541,7 +553,7 @@ function WorkspaceModule({
               <select onChange={(event) => setReconciliationStatus(event.target.value)} value={reconciliationStatus}>
                 <option>Todos</option>
                 <option>Finalizada</option>
-                <option>Processando</option>
+                <option>Em processamento</option>
                 <option>Erro</option>
               </select>
             </div>
@@ -584,23 +596,31 @@ function WorkspaceModule({
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row) => (
-                      <tr key={getString(row, "id")}>
-                        <td>{compactCode(row)}</td>
-                        <td>{formatDate(row.createdAt)}</td>
-                        <td>{formatDate(row.processedAt)}</td>
-                        <td>{importPeriod(row)}</td>
-                        <td>{provider}</td>
-                        <td>{displayName}</td>
-                        <td>{formatMoneyValue(importResult(row))}</td>
-                        <td><span className="status-pill success">{importStatusLabel(row)}</span></td>
-                        <td><span className="status-pill">{statsArray(row, "reconciliationRows").length ? "Sim" : "Nao"}</span></td>
-                        <td>
-                          <button className="icon-table-action" onClick={() => setSelectedImportId(getString(row, "id"))} type="button"><Eye size={17} /></button>
-                          <button className="icon-table-action" onClick={() => onDownloadReconciledImport(getString(row, "id"))} type="button"><FileText size={17} /></button>
-                        </td>
-                      </tr>
-                    ))}
+                    {rows.map((row) => {
+                      const rowStatus = getString(row, "status");
+                      const rowLogs = importLogLines(row);
+                      const canOpen = rowStatus === "processed";
+                      return (
+                        <tr key={getString(row, "id")}>
+                          <td>{compactCode(row)}</td>
+                          <td>{formatDate(row.createdAt)}</td>
+                          <td>{formatDate(row.processedAt)}</td>
+                          <td>{importPeriod(row)}</td>
+                          <td>{provider}</td>
+                          <td>{displayName}</td>
+                          <td>{canOpen ? formatMoneyValue(importResult(row)) : "---"}</td>
+                          <td>
+                            <span className={statusPillClass(row)}>{importStatusLabel(row)}</span>
+                            {rowLogs.length ? <small className="row-log">{rowLogs[rowLogs.length - 1]}</small> : null}
+                          </td>
+                          <td><span className="status-pill">{statsArray(row, "reconciliationRows").length ? "Sim" : "Nao"}</span></td>
+                          <td>
+                            <button className="icon-table-action" disabled={!canOpen} onClick={() => setSelectedImportId(getString(row, "id"))} type="button"><Eye size={17} /></button>
+                            <button className="icon-table-action" disabled={!canOpen} onClick={() => onDownloadReconciledImport(getString(row, "id"))} type="button"><FileText size={17} /></button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -687,8 +707,8 @@ function WorkspaceModule({
                   </div>
                 </div>
                 <div className="reconciliation-card-actions">
-                  <label className="file-action" onClick={(event) => event.stopPropagation()}>
-                    Upload do canal
+                  <label className="file-action prominent" onClick={(event) => event.stopPropagation()}>
+                    Upload de planilha
                     <input
                       accept=".csv,.tsv,.xlsx"
                       onClick={(event) => event.stopPropagation()}
@@ -711,22 +731,29 @@ function WorkspaceModule({
                 </div>
                 <div className="reconciliation-history">
                   {channelImports.length ? (
-                    channelImports.slice(0, 4).map((row, index) => (
-                      <button
-                        key={getString(row, "id", String(index))}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setSelectedReconciliationChannelId(channelId);
-                          setSelectedImportId(getString(row, "id"));
-                        }}
-                        type="button"
-                      >
-                        <span>{getString(row, "sourceName")}</span>
-                        <small>
-                          {getString(row, "status")} · {getString(row, "rowCount", "0")} linhas · {getString(row, "errorCount", "0")} alertas
-                        </small>
-                      </button>
-                    ))
+                    channelImports.slice(0, 4).map((row, index) => {
+                      const canOpen = getString(row, "status") === "processed";
+                      return (
+                        <button
+                          disabled={!canOpen}
+                          key={getString(row, "id", String(index))}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (canOpen) {
+                              setSelectedReconciliationChannelId(channelId);
+                              setSelectedImportId(getString(row, "id"));
+                            }
+                          }}
+                          type="button"
+                        >
+                          <span>{getString(row, "sourceName")}</span>
+                          <small>
+                            {importStatusLabel(row)} - {getString(row, "rowCount", "0")} linhas - {getString(row, "errorCount", "0")} alertas
+                            {importLogLines(row).length ? ` - ${importLogLines(row).at(-1)}` : ""}
+                          </small>
+                        </button>
+                      );
+                    })
                   ) : (
                     <p>Nenhuma planilha conciliada para este canal.</p>
                   )}
@@ -901,6 +928,7 @@ export function DashboardClient({
   const [activeSection, setActiveSection] = useState("Dashboard");
   const [query, setQuery] = useState("");
   const [workspace, setWorkspace] = useState<WorkspaceState>(emptyWorkspace);
+  const [pendingImports, setPendingImports] = useState<AnyRecord[]>([]);
   const [workspaceStatus, setWorkspaceStatus] = useState<"loading" | "ready" | "error">("loading");
   const [actionMessage, setActionMessage] = useState("Carregando dados operacionais...");
   const [chartView, setChartView] = useState<"Diario" | "Semanal" | "Mensal">("Diario");
@@ -1031,20 +1059,84 @@ export function DashboardClient({
 
     const provider = channel ? getString(channel, "provider") : "";
     const displayName = channel ? getString(channel, "displayName", provider) : file.name;
-    const imported = (await runAction(
-      provider ? `Planilha ${provider} conciliada` : "Planilha conciliada",
-      () =>
-        uploadImportFile(session, file, {
-          channelAccountId: channel ? getString(channel, "id") : undefined,
-          sourceName: displayName,
-        }),
-      false,
-    )) as
-      | AnyRecord
-      | null;
+    const pendingId = `pending-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    const pendingRow: AnyRecord = {
+      id: pendingId,
+      channelAccountId: channel ? getString(channel, "id") : "",
+      channel: provider || null,
+      channelDisplayName: displayName,
+      sourceName: displayName,
+      fileName: file.name,
+      status: "processing",
+      rowCount: 0,
+      errorCount: 0,
+      createdAt: now,
+      processedAt: "",
+      stats: {
+        logs: [
+          `Arquivo recebido: ${file.name}`,
+          "Enviando planilha para a API.",
+          "Aguardando leitura, classificacao dos lancamentos e calculo do repasse esperado.",
+        ],
+      },
+    };
+
+    setPendingImports((rows) => [pendingRow, ...rows]);
+    setActionMessage(`Planilha ${file.name} adicionada na fila como Em processamento.`);
+
+    let imported: AnyRecord | null = null;
+
+    try {
+      imported = (await runAction(
+        provider ? `Planilha ${provider} conciliada` : "Planilha conciliada",
+        () =>
+          uploadImportFile(session, file, {
+            channelAccountId: channel ? getString(channel, "id") : undefined,
+            sourceName: displayName,
+          }),
+        false,
+      )) as AnyRecord | null;
+    } finally {
+      if (!imported) {
+        setPendingImports((rows) =>
+          rows.map((row) =>
+            getString(row, "id") === pendingId
+              ? {
+                  ...row,
+                  status: "failed",
+                  errorCount: 1,
+                  processedAt: new Date().toISOString(),
+                  stats: {
+                    ...getStats(row),
+                    logs: [...importLogLines(row), "Falha no processamento. Veja a mensagem no topo da tela."],
+                  },
+                }
+              : row,
+          ),
+        );
+      }
+    }
 
     if (imported?.id) {
+      setPendingImports((rows) =>
+        rows.map((row) =>
+          getString(row, "id") === pendingId
+            ? {
+                ...row,
+                status: "processing",
+                rowCount: getString(imported, "rowCount", "0"),
+                errorCount: getString(imported, "errorCount", "0"),
+                stats: {
+                  ...getStats(row),
+                  logs: [...importLogLines(row), "Planilha processada. Atualizando historico do canal."],
+                },
+              }
+            : row,
+        ),
+      );
       await refreshWorkspace();
+      setPendingImports((rows) => rows.filter((row) => getString(row, "id") !== pendingId));
       await handleDownloadReconciledImport(String(imported.id));
       setActionMessage(
         `Planilha processada: ${getString(imported, "rowCount", "0")} linhas, ${getString(
@@ -1343,6 +1435,10 @@ export function DashboardClient({
       tone: "teal",
     },
   ];
+  const displayedWorkspace = {
+    ...workspace,
+    imports: [...pendingImports, ...workspace.imports],
+  };
 
   return (
     <main className="replica-shell">
@@ -1517,7 +1613,7 @@ export function DashboardClient({
             }
             section={activeSection}
             status={workspaceStatus}
-            workspace={workspace}
+            workspace={displayedWorkspace}
           />
         ) : (
           <>
