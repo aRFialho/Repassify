@@ -3,6 +3,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeft,
   Bell,
   Bot,
   Building2,
@@ -184,6 +185,66 @@ function getMoney(row: AnyRecord, key: string) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(number);
 }
 
+function asNumber(value: unknown) {
+  const number = typeof value === "number" ? value : Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatMoneyValue(value: unknown) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(asNumber(value));
+}
+
+function getStats(row: AnyRecord) {
+  return row.stats && typeof row.stats === "object" ? (row.stats as AnyRecord) : {};
+}
+
+function statsArray(row: AnyRecord, key: string): AnyRecord[] {
+  const value = getStats(row)[key];
+  return Array.isArray(value) ? (value.filter((item) => item && typeof item === "object") as AnyRecord[]) : [];
+}
+
+function formatDate(value: unknown) {
+  const raw = typeof value === "string" || typeof value === "number" ? String(value) : "";
+  if (!raw) return "---";
+  const date = new Date(raw);
+  if (!Number.isNaN(date.getTime())) {
+    return date.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  }
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return iso ? `${iso[3]}/${iso[2]}/${iso[1]}` : raw;
+}
+
+function compactCode(row: AnyRecord) {
+  const stats = getStats(row);
+  const firstLaunch = Array.isArray(stats.reconciliationRows) ? (stats.reconciliationRows[0] as AnyRecord | undefined) : undefined;
+  const conciliationId = firstLaunch ? getString(firstLaunch, "conciliationId", "") : "";
+  return conciliationId || getString(row, "id", "").slice(0, 8).toUpperCase();
+}
+
+function importResult(row: AnyRecord) {
+  const stats = getStats(row);
+  const koncili = stats.konciliStyleSummary && typeof stats.konciliStyleSummary === "object" ? (stats.konciliStyleSummary as AnyRecord) : {};
+  const totals = stats.totals && typeof stats.totals === "object" ? (stats.totals as AnyRecord) : {};
+  return asNumber(koncili.result ?? totals.receivedAmount);
+}
+
+function importPeriod(row: AnyRecord) {
+  const rows = statsArray(row, "reconciliationRows");
+  const dates = rows.map((item) => getString(item, "settlementDate", "")).filter(Boolean).sort();
+  if (dates.length) {
+    return `${formatDate(dates[0])} - ${formatDate(dates[dates.length - 1])}`;
+  }
+  return formatDate(row.processedAt ?? row.createdAt);
+}
+
+function importStatusLabel(row: AnyRecord) {
+  const status = getString(row, "status");
+  if (status === "processed") return "Finalizada";
+  if (status === "failed") return "Erro";
+  if (status === "processing") return "Processando";
+  return status;
+}
+
 function SimpleRows({ rows, columns }: { rows: AnyRecord[]; columns: Array<{ key: string; label: string }> }) {
   if (!rows.length) {
     return <div className="empty-state">Nenhum registro encontrado. Use as ações desta aba para criar dados.</div>;
@@ -261,6 +322,10 @@ function WorkspaceModule({
   status: "loading" | "ready" | "error";
   workspace: WorkspaceState;
 }) {
+  const [selectedReconciliationChannelId, setSelectedReconciliationChannelId] = useState<string | null>(null);
+  const [selectedImportId, setSelectedImportId] = useState<string | null>(null);
+  const [reconciliationSearch, setReconciliationSearch] = useState("");
+  const [reconciliationStatus, setReconciliationStatus] = useState("Todos");
   const panelStatus = status === "loading" ? "Sincronizando..." : actionMessage;
 
   if (section === "Central de Repasses") {
@@ -297,6 +362,257 @@ function WorkspaceModule({
   if (section === "Conciliação") {
     const latestProcessedImport = workspace.imports.find((row) => getString(row, "status") === "processed");
     const activeChannels = workspace.channels.filter((channel) => getString(channel, "status") === "active");
+    const selectedChannel = activeChannels.find((channel) => getString(channel, "id") === selectedReconciliationChannelId) ?? null;
+    const getChannelImports = (channel: AnyRecord) => {
+      const channelId = getString(channel, "id");
+      const provider = getString(channel, "provider");
+      const displayName = getString(channel, "displayName", provider);
+      return workspace.imports.filter((row) => {
+        const rowChannelId = getString(row, "channelAccountId", "");
+        const sourceName = getString(row, "sourceName", "").toLowerCase();
+        return rowChannelId === channelId || sourceName.includes(provider.toLowerCase()) || sourceName.includes(displayName.toLowerCase());
+      });
+    };
+    const selectedChannelImports = selectedChannel ? getChannelImports(selectedChannel) : [];
+    const selectedImport = selectedChannelImports.find((row) => getString(row, "id") === selectedImportId) ?? null;
+    const filteredConciliations = selectedChannelImports.filter((row) => {
+      const haystack = [compactCode(row), getString(row, "sourceName"), importStatusLabel(row), importPeriod(row), String(importResult(row))]
+        .join(" ")
+        .toLowerCase();
+      const matchesSearch = !reconciliationSearch.trim() || haystack.includes(reconciliationSearch.trim().toLowerCase());
+      const matchesStatus = reconciliationStatus === "Todos" || importStatusLabel(row) === reconciliationStatus;
+      return matchesSearch && matchesStatus;
+    });
+    const importsByDay = filteredConciliations.reduce((groups, row) => {
+      const key = formatDate(row.processedAt ?? row.createdAt);
+      const current = groups.get(key) ?? [];
+      current.push(row);
+      groups.set(key, current);
+      return groups;
+    }, new Map<string, AnyRecord[]>());
+
+    if (selectedImport && selectedChannel) {
+      const summary = getStats(selectedImport).konciliStyleSummary as AnyRecord | undefined;
+      const categories = statsArray(selectedImport, "categorySummary");
+      const launches = statsArray(selectedImport, "launchSummary");
+      const detailRows = statsArray(selectedImport, "reconciliationRows");
+
+      return (
+        <section className="panel module-panel reconciliation-workspace">
+          <div className="reconciliation-topbar">
+            <button className="ghost-action" onClick={() => setSelectedImportId(null)} type="button">
+              <ArrowLeft size={17} />
+              Voltar
+            </button>
+            <div>
+              <strong>{getString(selectedChannel, "provider")} #{compactCode(selectedImport)}</strong>
+              <span>{getString(selectedChannel, "displayName", getString(selectedChannel, "provider"))}</span>
+            </div>
+            <button className="primary-mini secondary" onClick={() => onDownloadReconciledImport(getString(selectedImport, "id"))} type="button">
+              Baixar planilha
+            </button>
+          </div>
+
+          <div className="koncili-summary-grid">
+            <div><span>Receita de vendas</span><strong className="positive">{formatMoneyValue(summary?.salesRevenue)}</strong></div>
+            <div><span>Despesas</span><strong className="negative">{formatMoneyValue(summary?.expenses)}</strong></div>
+            <div><span>Outras movimentacoes</span><strong>{formatMoneyValue(summary?.otherMovements)}</strong></div>
+            <div><span>Legado</span><strong className={asNumber(summary?.legacy) < 0 ? "negative" : "positive"}>{formatMoneyValue(summary?.legacy)}</strong></div>
+            <div><span>Resultado</span><strong className="positive">{formatMoneyValue(summary?.result ?? importResult(selectedImport))}</strong></div>
+          </div>
+
+          <div className="reconciliation-detail-grid">
+            <article className="reconciliation-detail-panel">
+              <PanelHeader title="Resultado por Categoria" />
+              <div className="module-table-wrap">
+                <table className="module-table">
+                  <thead>
+                    <tr>
+                      <th>Categoria</th>
+                      <th>Receita liquida</th>
+                      <th>Despesa liquida</th>
+                      <th>Resultado final</th>
+                      <th>Peso das despesas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {categories.map((item) => (
+                      <tr key={getString(item, "category")}>
+                        <td>{getString(item, "category")}</td>
+                        <td>{formatMoneyValue(item.revenueNet)}</td>
+                        <td>{formatMoneyValue(item.expenseNet)}</td>
+                        <td>{formatMoneyValue(item.finalAmount)}</td>
+                        <td>{asNumber(item.expenseWeightPct).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</td>
+                      </tr>
+                    ))}
+                    {!categories.length ? <tr><td colSpan={5}>Sem categorias calculadas para esta conciliacao.</td></tr> : null}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+            <article className="reconciliation-detail-panel">
+              <PanelHeader title="Lancamentos" />
+              <div className="launch-chip-row">
+                {launches.slice(0, 10).map((item) => (
+                  <span key={getString(item, "launchName")}>{getString(item, "launchName")} <b>{getString(item, "count", "0")}</b></span>
+                ))}
+              </div>
+              <div className="module-table-wrap">
+                <table className="module-table">
+                  <thead>
+                    <tr>
+                      <th>Pedido / Ref.</th>
+                      <th>Data Repasse</th>
+                      <th>Parcela</th>
+                      <th>Lancamento</th>
+                      <th>Valor previsto</th>
+                      <th>Valor repasse</th>
+                      <th>Diferenca</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailRows.slice(0, 50).map((row, index) => (
+                      <tr key={`${getString(row, "rowNumber", String(index))}-${index}`}>
+                        <td>{getString(row, "orderNumber")}</td>
+                        <td>{formatDate(row.settlementDate)}</td>
+                        <td>{getString(row, "installment")}</td>
+                        <td>{getString(row, "launchName")}</td>
+                        <td>{formatMoneyValue(row.expectedAmount)}</td>
+                        <td>{formatMoneyValue(row.receivedAmount)}</td>
+                        <td>{formatMoneyValue(row.differenceAmount)}</td>
+                        <td>{getString(row, "status")}</td>
+                      </tr>
+                    ))}
+                    {!detailRows.length ? <tr><td colSpan={8}>Sem lancamentos detalhados para esta conciliacao.</td></tr> : null}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </section>
+      );
+    }
+
+    if (selectedChannel) {
+      const provider = getString(selectedChannel, "provider");
+      const displayName = getString(selectedChannel, "displayName", provider);
+
+      return (
+        <section className="panel module-panel reconciliation-workspace">
+          <div className="reconciliation-topbar">
+            <button
+              className="ghost-action"
+              onClick={() => {
+                setSelectedReconciliationChannelId(null);
+                setSelectedImportId(null);
+              }}
+              type="button"
+            >
+              <ArrowLeft size={17} />
+              Canais
+            </button>
+            <div>
+              <strong>{provider}</strong>
+              <span>{displayName}</span>
+            </div>
+            <label className="file-action">
+              Upload do canal
+              <input accept=".csv,.tsv,.xlsx" onChange={(event) => onImportFile(event.target.files?.[0] ?? null, selectedChannel)} type="file" />
+            </label>
+          </div>
+
+          <div className="conciliation-filter-panel">
+            <div>
+              <label>Numero da conciliacao</label>
+              <input onChange={(event) => setReconciliationSearch(event.target.value)} placeholder="Ex: 927745" value={reconciliationSearch} />
+            </div>
+            <div>
+              <label>Marketplace</label>
+              <select disabled value={provider}><option>{provider}</option></select>
+            </div>
+            <div>
+              <label>Conta</label>
+              <select disabled value={displayName}><option>{displayName}</option></select>
+            </div>
+            <div>
+              <label>Status de analise</label>
+              <select onChange={(event) => setReconciliationStatus(event.target.value)} value={reconciliationStatus}>
+                <option>Todos</option>
+                <option>Finalizada</option>
+                <option>Processando</option>
+                <option>Erro</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="conciliation-toolbar">
+            <span>Exibindo {filteredConciliations.length} de {selectedChannelImports.length}</span>
+            <button
+              className="primary-mini secondary"
+              onClick={() => {
+                setReconciliationSearch("");
+                setReconciliationStatus("Todos");
+              }}
+              type="button"
+            >
+              Limpar filtros
+            </button>
+          </div>
+
+          {[...importsByDay.entries()].map(([day, rows]) => (
+            <article className="conciliation-day-group" key={day}>
+              <header>
+                <strong>{day}</strong>
+                <span>{rows.length} conciliacao{rows.length === 1 ? "" : "es"} · {formatMoneyValue(rows.reduce((total, row) => total + importResult(row), 0))}</span>
+              </header>
+              <div className="module-table-wrap">
+                <table className="module-table conciliation-list-table">
+                  <thead>
+                    <tr>
+                      <th>Codigo</th>
+                      <th>Criada em</th>
+                      <th>Finalizada em</th>
+                      <th>Periodo de repasse</th>
+                      <th>Marketplace</th>
+                      <th>Conta</th>
+                      <th>Total liquido</th>
+                      <th>Status</th>
+                      <th>Analisada?</th>
+                      <th>Acoes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={getString(row, "id")}>
+                        <td>{compactCode(row)}</td>
+                        <td>{formatDate(row.createdAt)}</td>
+                        <td>{formatDate(row.processedAt)}</td>
+                        <td>{importPeriod(row)}</td>
+                        <td>{provider}</td>
+                        <td>{displayName}</td>
+                        <td>{formatMoneyValue(importResult(row))}</td>
+                        <td><span className="status-pill success">{importStatusLabel(row)}</span></td>
+                        <td><span className="status-pill">{statsArray(row, "reconciliationRows").length ? "Sim" : "Nao"}</span></td>
+                        <td>
+                          <button className="icon-table-action" onClick={() => setSelectedImportId(getString(row, "id"))} type="button"><Eye size={17} /></button>
+                          <button className="icon-table-action" onClick={() => onDownloadReconciledImport(getString(row, "id"))} type="button"><FileText size={17} /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          ))}
+
+          {!filteredConciliations.length ? (
+            <div className="empty-state">Nenhuma conciliacao encontrada para este canal. Envie uma planilha para iniciar o historico.</div>
+          ) : null}
+        </section>
+      );
+    }
 
     return (
       <section className="panel module-panel">
@@ -340,7 +656,14 @@ function WorkspaceModule({
             }, 0);
 
             return (
-              <article className="reconciliation-channel-card" key={channelId}>
+              <article
+                className="reconciliation-channel-card clickable"
+                key={channelId}
+                onClick={() => {
+                  setSelectedReconciliationChannelId(channelId);
+                  setSelectedImportId(null);
+                }}
+              >
                 <div className="reconciliation-channel-head">
                   <ChannelBadge name={provider} />
                   <div>
@@ -364,10 +687,11 @@ function WorkspaceModule({
                   </div>
                 </div>
                 <div className="reconciliation-card-actions">
-                  <label className="file-action">
+                  <label className="file-action" onClick={(event) => event.stopPropagation()}>
                     Upload do canal
                     <input
                       accept=".csv,.tsv,.xlsx"
+                      onClick={(event) => event.stopPropagation()}
                       onChange={(event) => onImportFile(event.target.files?.[0] ?? null, channel)}
                       type="file"
                     />
@@ -375,7 +699,10 @@ function WorkspaceModule({
                   {lastImport ? (
                     <button
                       className="primary-mini secondary"
-                      onClick={() => onDownloadReconciledImport(getString(lastImport, "id"))}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDownloadReconciledImport(getString(lastImport, "id"));
+                      }}
                       type="button"
                     >
                       Baixar última
@@ -387,7 +714,11 @@ function WorkspaceModule({
                     channelImports.slice(0, 4).map((row, index) => (
                       <button
                         key={getString(row, "id", String(index))}
-                        onClick={() => onDownloadReconciledImport(getString(row, "id"))}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedReconciliationChannelId(channelId);
+                          setSelectedImportId(getString(row, "id"));
+                        }}
                         type="button"
                       >
                         <span>{getString(row, "sourceName")}</span>
