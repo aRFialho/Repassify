@@ -146,7 +146,7 @@ export async function registerImportRoutes(app: FastifyInstance) {
         client.query<{ id: string; provider: string; displayName: string }>(
           `SELECT id, provider, display_name AS "displayName"
            FROM channel_accounts
-           WHERE tenant_id = $1 AND id = $2 AND status = 'active'`,
+           WHERE tenant_id = $1 AND id = $2`,
           [context.tenantId, requestedChannelAccountId]
         )
       );
@@ -155,7 +155,7 @@ export async function registerImportRoutes(app: FastifyInstance) {
       if (!targetChannel) {
         return reply.code(404).send({
           error: "channel_not_found",
-          message: "Canal ativo nao encontrado para conciliacao."
+          message: "Canal nao encontrado para conciliacao por planilha."
         });
       }
     }
@@ -272,10 +272,13 @@ export async function registerImportRoutes(app: FastifyInstance) {
         if (!channelAccountId) {
           const channel = await client.query<{ id: string }>(
             `INSERT INTO channel_accounts (tenant_id, provider, external_account_id, display_name, status, settings)
-             VALUES ($1, $2, $3, $4, 'active', $5::jsonb)
+             VALUES ($1, $2, $3, $4, 'spreadsheet_only', $5::jsonb)
              ON CONFLICT (tenant_id, provider, external_account_id) DO UPDATE
                SET display_name = EXCLUDED.display_name,
-                   status = 'active',
+                   status = CASE
+                     WHEN channel_accounts.status = 'active' THEN 'active'
+                     ELSE 'spreadsheet_only'
+                   END,
                    settings = channel_accounts.settings || EXCLUDED.settings,
                    updated_at = now()
              RETURNING id`,

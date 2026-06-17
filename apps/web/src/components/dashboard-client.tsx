@@ -245,6 +245,11 @@ function importStatusLabel(row: AnyRecord) {
   return status;
 }
 
+function validId(row: AnyRecord) {
+  const id = getString(row, "id", "");
+  return id && id !== "-" && !id.startsWith("provider-") ? id : "";
+}
+
 function importLogLines(row: AnyRecord) {
   const logs = getStats(row).logs;
   return Array.isArray(logs) ? logs.map((item) => String(item)).filter(Boolean) : [];
@@ -409,16 +414,31 @@ function WorkspaceModule({
 
   if (section === "Conciliação") {
     const latestProcessedImport = workspace.imports.find((row) => getString(row, "status") === "processed");
-    const activeChannels = workspace.channels.filter((channel) => getString(channel, "status") === "active");
-    const selectedChannel = activeChannels.find((channel) => getString(channel, "id") === selectedReconciliationChannelId) ?? null;
+    const reconciliationChannels = [
+      ...workspace.channels,
+      ...workspace.providers
+        .filter((providerRow) => !workspace.channels.some((channel) => getString(channel, "provider") === getString(providerRow, "provider")))
+        .map((providerRow) => ({
+          id: `provider-${getString(providerRow, "provider")}`,
+          provider: getString(providerRow, "provider"),
+          displayName: getString(providerRow, "provider"),
+          status: "spreadsheet_only",
+        })),
+    ];
+    const selectedChannel =
+      reconciliationChannels.find((channel) => getString(channel, "id") === selectedReconciliationChannelId) ?? null;
     const getChannelImports = (channel: AnyRecord) => {
-      const channelId = getString(channel, "id");
+      const channelId = validId(channel);
       const provider = getString(channel, "provider");
       const displayName = getString(channel, "displayName", provider);
       return workspace.imports.filter((row) => {
         const rowChannelId = getString(row, "channelAccountId", "");
         const sourceName = getString(row, "sourceName", "").toLowerCase();
-        return rowChannelId === channelId || sourceName.includes(provider.toLowerCase()) || sourceName.includes(displayName.toLowerCase());
+        return (
+          (channelId && rowChannelId === channelId) ||
+          sourceName.includes(provider.toLowerCase()) ||
+          sourceName.includes(displayName.toLowerCase())
+        );
       });
     };
     const selectedChannelImports = selectedChannel ? getChannelImports(selectedChannel) : [];
@@ -692,15 +712,11 @@ function WorkspaceModule({
           ]}
         />
         <div className="reconciliation-channel-grid">
-          {activeChannels.map((channel) => {
+          {reconciliationChannels.map((channel) => {
             const channelId = getString(channel, "id");
             const provider = getString(channel, "provider");
             const displayName = getString(channel, "displayName", provider);
-            const channelImports = workspace.imports.filter((row) => {
-              const rowChannelId = getString(row, "channelAccountId", "");
-              const sourceName = getString(row, "sourceName", "").toLowerCase();
-              return rowChannelId === channelId || sourceName.includes(provider.toLowerCase()) || sourceName.includes(displayName.toLowerCase());
-            });
+            const channelImports = getChannelImports(channel);
             const lastImport = channelImports[0];
             const channelPayouts = workspace.payouts.filter((row) => getString(row, "channel") === provider);
             const channelIssueCount = channelImports.reduce((total, row) => {
@@ -723,7 +739,7 @@ function WorkspaceModule({
                     <strong>{provider}</strong>
                     <span>{displayName}</span>
                   </div>
-                  <em>Ativa</em>
+                  <em>{getString(channel, "status") === "active" ? "Ativa" : "Planilha"}</em>
                 </div>
                 <div className="reconciliation-card-metrics">
                   <div>
@@ -786,8 +802,8 @@ function WorkspaceModule({
               </article>
             );
           })}
-          {!activeChannels.length ? (
-            <div className="empty-state">Nenhum canal ativo. Ative uma integração em Canais para conciliar planilhas por canal.</div>
+          {!reconciliationChannels.length ? (
+            <div className="empty-state">Nenhum canal disponivel. Cadastre um provedor ou envie uma planilha generica para iniciar.</div>
           ) : null}
         </div>
       </section>
@@ -833,6 +849,7 @@ function WorkspaceModule({
           {workspace.providers.map((providerRow, index) => {
             const provider = getString(providerRow, "provider");
             const connected = workspace.channels.find((channel) => getString(channel, "provider") === provider);
+            const connectedActive = connected ? getString(connected, "status") === "active" : false;
             return (
               <article className="channel-card" key={provider}>
                 <div className="channel-logo" style={{ "--badge-color": channels[index]?.color ?? "#0a2d88" } as CSSProperties}>
@@ -842,7 +859,7 @@ function WorkspaceModule({
                   <strong>{provider}</strong>
                   <span>{connected ? getString(connected, "displayName") : "Integração inativa"}</span>
                 </div>
-                <em className={connected ? "active" : "inactive"}>{connected ? "Ativa" : "Inativa"}</em>
+                <em className={connectedActive ? "active" : "inactive"}>{connectedActive ? "Ativa" : connected ? "Apenas planilha" : "Inativa"}</em>
                 <button onClick={() => onChannelAuth(provider)} type="button">Autenticar</button>
                 <button onClick={() => onChannelSync(provider)} type="button">Sincronizar</button>
               </article>
@@ -1084,11 +1101,12 @@ export function DashboardClient({
 
     const provider = channel ? getString(channel, "provider") : "";
     const displayName = channel ? getString(channel, "displayName", provider) : file.name;
+    const channelAccountId = channel ? validId(channel) : "";
     const pendingId = `pending-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
     const pendingRow: AnyRecord = {
       id: pendingId,
-      channelAccountId: channel ? getString(channel, "id") : "",
+      channelAccountId,
       channel: provider || null,
       channelDisplayName: displayName,
       sourceName: displayName,
@@ -1117,7 +1135,7 @@ export function DashboardClient({
         provider ? `Planilha ${provider} conciliada` : "Planilha conciliada",
         () =>
           uploadImportFile(session, file, {
-            channelAccountId: channel ? getString(channel, "id") : undefined,
+            channelAccountId: channelAccountId || undefined,
             sourceName: displayName,
           }),
         false,
