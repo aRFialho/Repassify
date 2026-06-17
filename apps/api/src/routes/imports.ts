@@ -29,6 +29,11 @@ function componentString(components: unknown, key: string) {
   return Array.isArray(value) ? value.join(", ") : typeof value === "string" || typeof value === "number" ? String(value) : "";
 }
 
+function statsArray<T extends Record<string, unknown>>(stats: unknown, key: string): T[] {
+  const value = stats && typeof stats === "object" ? (stats as Record<string, unknown>)[key] : null;
+  return Array.isArray(value) ? (value.filter((item) => item && typeof item === "object") as T[]) : [];
+}
+
 function addCurrencyColumns(sheet: ExcelJS.Worksheet, columns: number[]) {
   for (const columnIndex of columns) {
     sheet.getColumn(columnIndex).numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
@@ -71,7 +76,7 @@ export async function registerImportRoutes(app: FastifyInstance) {
                   import_batches.created_at AS "createdAt", import_batches.processed_at AS "processedAt"
            FROM import_batches
            LEFT JOIN channel_accounts ON channel_accounts.id = import_batches.channel_account_id
-           ORDER BY created_at DESC`,
+           ORDER BY import_batches.created_at DESC`,
           []
         )
       );
@@ -467,6 +472,115 @@ export async function registerImportRoutes(app: FastifyInstance) {
     }
     addCurrencyColumns(detail, [6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
     styleSheet(detail);
+
+    const categorySummary = statsArray(data.batch.stats, "categorySummary");
+    if (categorySummary.length) {
+      const categories = workbook.addWorksheet("Resumo Categorias");
+      categories.columns = [
+        { header: "Categoria", key: "category" },
+        { header: "Lancamentos", key: "count" },
+        { header: "Receita liquida", key: "revenueNet" },
+        { header: "Despesa liquida", key: "expenseNet" },
+        { header: "Resultado final", key: "finalAmount" },
+        { header: "Peso despesas %", key: "expenseWeightPct" }
+      ];
+      for (const item of categorySummary) {
+        categories.addRow({
+          category: item.category,
+          count: numberValue(item.count),
+          revenueNet: numberValue(item.revenueNet),
+          expenseNet: numberValue(item.expenseNet),
+          finalAmount: numberValue(item.finalAmount),
+          expenseWeightPct: numberValue(item.expenseWeightPct) / 100
+        });
+      }
+      addCurrencyColumns(categories, [3, 4, 5]);
+      categories.getColumn(6).numFmt = "0.00%";
+      styleSheet(categories);
+    }
+
+    const launchSummary = statsArray(data.batch.stats, "launchSummary");
+    if (launchSummary.length) {
+      const launches = workbook.addWorksheet("Resumo Lancamentos");
+      launches.columns = [
+        { header: "Lancamento", key: "launchName" },
+        { header: "Categoria", key: "category" },
+        { header: "Quantidade", key: "count" },
+        { header: "Valor previsto", key: "expectedAmount" },
+        { header: "Valor repasse", key: "receivedAmount" },
+        { header: "Diferenca", key: "differenceAmount" }
+      ];
+      for (const item of launchSummary) {
+        launches.addRow({
+          launchName: item.launchName,
+          category: item.category,
+          count: numberValue(item.count),
+          expectedAmount: numberValue(item.expectedAmount),
+          receivedAmount: numberValue(item.receivedAmount),
+          differenceAmount: numberValue(item.differenceAmount)
+        });
+      }
+      addCurrencyColumns(launches, [4, 5, 6]);
+      styleSheet(launches);
+    }
+
+    const statusSummary = statsArray(data.batch.stats, "statusSummary");
+    if (statusSummary.length) {
+      const statuses = workbook.addWorksheet("Resumo Status");
+      statuses.columns = [
+        { header: "Status", key: "status" },
+        { header: "Quantidade", key: "count" }
+      ];
+      for (const item of statusSummary) {
+        statuses.addRow({ status: item.status, count: numberValue(item.count) });
+      }
+      styleSheet(statuses);
+    }
+
+    const reconciliationRows = statsArray(data.batch.stats, "reconciliationRows");
+    if (reconciliationRows.length) {
+      const launchesDetail = workbook.addWorksheet("Lancamentos");
+      launchesDetail.columns = [
+        { header: "Conciliacao", key: "conciliationId" },
+        { header: "Pedido / Ref. pedido", key: "orderNumber" },
+        { header: "Canal", key: "channel" },
+        { header: "Conta", key: "account" },
+        { header: "Data pedido", key: "orderDate" },
+        { header: "Data prevista", key: "expectedDate" },
+        { header: "Data repasse", key: "settlementDate" },
+        { header: "Parcela", key: "installment" },
+        { header: "Lancamento", key: "launchName" },
+        { header: "Categoria", key: "category" },
+        { header: "Valor previsto", key: "expectedAmount" },
+        { header: "Valor repasse", key: "receivedAmount" },
+        { header: "Diferenca", key: "differenceAmount" },
+        { header: "Status", key: "status" },
+        { header: "Critica", key: "critique" },
+        { header: "Linha origem", key: "rowNumber" }
+      ];
+      for (const item of reconciliationRows) {
+        launchesDetail.addRow({
+          conciliationId: item.conciliationId,
+          orderNumber: item.orderNumber,
+          channel: item.channel,
+          account: item.account,
+          orderDate: item.orderDate,
+          expectedDate: item.expectedDate,
+          settlementDate: item.settlementDate,
+          installment: item.installment,
+          launchName: item.launchName,
+          category: item.category,
+          expectedAmount: numberValue(item.expectedAmount),
+          receivedAmount: numberValue(item.receivedAmount),
+          differenceAmount: numberValue(item.differenceAmount),
+          status: item.status,
+          critique: item.critique,
+          rowNumber: numberValue(item.rowNumber)
+        });
+      }
+      addCurrencyColumns(launchesDetail, [11, 12, 13]);
+      styleSheet(launchesDetail);
+    }
 
     const issues = workbook.addWorksheet("Divergencias");
     issues.columns = [
