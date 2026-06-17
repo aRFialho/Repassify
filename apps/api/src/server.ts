@@ -33,7 +33,11 @@ export async function buildServer() {
     service: "repassify-api"
   }));
 
-  app.get("/health", { logLevel: "silent" }, async (_request, reply) => reply.code(204).send());
+  app.get("/health", { logLevel: "silent" }, async () => ({
+    ok: true,
+    service: "repassify-api",
+    checkedAt: new Date().toISOString()
+  }));
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, "request_failed");
