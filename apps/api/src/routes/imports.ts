@@ -65,22 +65,40 @@ export async function registerImportRoutes(app: FastifyInstance) {
     const context = getRequestContext(request);
 
     if (hasDatabase()) {
-      const result = await withTenant(context.tenantId, (client) =>
-        client.query(
-          `SELECT id, source_type AS "sourceType", source_name AS "sourceName", file_hash AS "fileHash",
-                  import_batches.channel_account_id AS "channelAccountId",
-                  channel_accounts.provider AS channel,
-                  channel_accounts.display_name AS "channelDisplayName",
-                  status, row_count AS "rowCount", error_count AS "errorCount", mapping_config AS "mappingConfig",
-                  import_batches.stats,
-                  import_batches.created_at AS "createdAt", import_batches.processed_at AS "processedAt"
-           FROM import_batches
-           LEFT JOIN channel_accounts ON channel_accounts.id = import_batches.channel_account_id
-           ORDER BY import_batches.created_at DESC`,
-          []
-        )
-      );
-      return ok(result.rows);
+      try {
+        const result = await withTenant(context.tenantId, (client) =>
+          client.query(
+            `SELECT id, source_type AS "sourceType", source_name AS "sourceName", file_hash AS "fileHash",
+                    import_batches.channel_account_id AS "channelAccountId",
+                    channel_accounts.provider AS channel,
+                    channel_accounts.display_name AS "channelDisplayName",
+                    status, row_count AS "rowCount", error_count AS "errorCount", mapping_config AS "mappingConfig",
+                    import_batches.stats,
+                    import_batches.created_at AS "createdAt", import_batches.processed_at AS "processedAt"
+             FROM import_batches
+             LEFT JOIN channel_accounts ON channel_accounts.id = import_batches.channel_account_id
+             ORDER BY import_batches.created_at DESC`,
+            []
+          )
+        );
+        return ok(result.rows);
+      } catch (error) {
+        request.log.error({ err: error }, "imports_listing_join_failed");
+        const fallback = await withTenant(context.tenantId, (client) =>
+          client.query(
+            `SELECT id, source_type AS "sourceType", source_name AS "sourceName", file_hash AS "fileHash",
+                    NULL::uuid AS "channelAccountId",
+                    NULL::text AS channel,
+                    NULL::text AS "channelDisplayName",
+                    status, row_count AS "rowCount", error_count AS "errorCount", mapping_config AS "mappingConfig",
+                    stats, created_at AS "createdAt", processed_at AS "processedAt"
+             FROM import_batches
+             ORDER BY created_at DESC`,
+            []
+          )
+        );
+        return ok(fallback.rows);
+      }
     }
 
     return ok([]);
