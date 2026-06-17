@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Bell,
@@ -299,6 +299,42 @@ function MetricStrip({ items }: { items: Array<{ label: string; value: string }>
   );
 }
 
+function UploadSpreadsheetButton({
+  channel,
+  onImportFile,
+}: {
+  channel: AnyRecord;
+  onImportFile: (file: File | null, channel?: AnyRecord) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  return (
+    <>
+      <button
+        className="file-action prominent"
+        onClick={(event) => {
+          event.stopPropagation();
+          inputRef.current?.click();
+        }}
+        type="button"
+      >
+        Upload de planilha
+      </button>
+      <input
+        ref={inputRef}
+        accept=".csv,.tsv,.xlsx"
+        className="hidden-file-input"
+        onClick={(event) => event.stopPropagation()}
+        onChange={(event) => {
+          onImportFile(event.target.files?.[0] ?? null, channel);
+          event.currentTarget.value = "";
+        }}
+        type="file"
+      />
+    </>
+  );
+}
+
 function WorkspaceModule({
   actionMessage,
   onCreateChannel,
@@ -529,10 +565,7 @@ function WorkspaceModule({
               <strong>{provider}</strong>
               <span>{displayName}</span>
             </div>
-            <label className="file-action prominent">
-              Upload de planilha
-              <input accept=".csv,.tsv,.xlsx" onChange={(event) => onImportFile(event.target.files?.[0] ?? null, selectedChannel)} type="file" />
-            </label>
+            <UploadSpreadsheetButton channel={selectedChannel} onImportFile={onImportFile} />
           </div>
 
           <div className="conciliation-filter-panel">
@@ -707,15 +740,7 @@ function WorkspaceModule({
                   </div>
                 </div>
                 <div className="reconciliation-card-actions">
-                  <label className="file-action prominent" onClick={(event) => event.stopPropagation()}>
-                    Upload de planilha
-                    <input
-                      accept=".csv,.tsv,.xlsx"
-                      onClick={(event) => event.stopPropagation()}
-                      onChange={(event) => onImportFile(event.target.files?.[0] ?? null, channel)}
-                      type="file"
-                    />
-                  </label>
+                  <UploadSpreadsheetButton channel={channel} onImportFile={onImportFile} />
                   {lastImport ? (
                     <button
                       className="primary-mini secondary"

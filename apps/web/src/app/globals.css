@@ -773,10 +773,11 @@ img {
   transform: translateY(-1px);
 }
 
-.file-action input {
+.hidden-file-input {
   position: absolute;
-  inset: 0;
-  cursor: pointer;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
   opacity: 0;
 }
 
