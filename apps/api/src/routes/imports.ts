@@ -104,6 +104,15 @@ export async function registerImportRoutes(app: FastifyInstance) {
     return ok([]);
   });
 
+  app.get("/v1/imports/upload", async (_request, reply) =>
+    reply.code(405).send({
+      error: "method_not_allowed",
+      message: "Upload de planilha usa POST multipart/form-data neste endpoint.",
+      method: "POST",
+      fields: ["file", "sourceType", "sourceName", "channelAccountId"]
+    })
+  );
+
   app.post("/v1/imports/upload", async (request, reply) => {
     const context = getRequestContext(request);
     const fields: Record<string, string> = {};
