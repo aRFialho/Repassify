@@ -34,9 +34,9 @@ services:
       - key: API_PUBLIC_URL
         value: https://repassify-api.onrender.com
       - key: SHOPEE_ENV
-        value: sandbox
+        value: live
       - key: SHOPEE_BASE_URL
-        value: https://partner.test-stable.shopeemobile.com
+        value: https://partner.shopeemobile.com
       - key: SHOPEE_PARTNER_ID
         sync: false
       - key: SHOPEE_PARTNER_KEY
