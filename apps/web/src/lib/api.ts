@@ -97,9 +97,10 @@ export function startChannelAuth(session: ApiSession, provider: string) {
   return apiRequest<Record<string, unknown>>(`/v1/channels/${encodeURIComponent(provider)}/auth/start`, session);
 }
 
-export function syncChannel(session: ApiSession, provider: string) {
+export function syncChannel(session: ApiSession, provider: string, period?: PeriodFilter) {
   return apiRequest<Record<string, unknown>>(`/v1/channels/${encodeURIComponent(provider)}/sync`, session, {
-    method: "POST"
+    method: "POST",
+    body: JSON.stringify(period ?? {})
   });
 }
 

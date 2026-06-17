@@ -265,10 +265,19 @@ export async function registerChannelRoutes(app: FastifyInstance) {
 
   app.post("/v1/channels/:provider/sync", async (request) => {
     const params = z.object({ provider: z.string().min(2) }).parse(request.params);
+    const body = z
+      .object({
+        periodStart: z.string().optional(),
+        periodEnd: z.string().optional()
+      })
+      .catch({})
+      .parse(request.body ?? {});
     if (params.provider.toLowerCase() === "shopee") {
       return ok({
         provider: "Shopee",
         status: isShopeeConfigured() ? "ready_for_sync_worker" : "not_configured",
+        periodStart: body.periodStart ?? null,
+        periodEnd: body.periodEnd ?? null,
         importedOrders: 0,
         importedSettlements: 0,
         message: isShopeeConfigured()
@@ -280,6 +289,8 @@ export async function registerChannelRoutes(app: FastifyInstance) {
     return ok({
       provider: params.provider,
       status: "not_configured",
+      periodStart: body.periodStart ?? null,
+      periodEnd: body.periodEnd ?? null,
       importedOrders: 0,
       importedSettlements: 0,
       message: "Sincronizacao aguardando credenciais reais do marketplace."

@@ -250,6 +250,20 @@ function validId(row: AnyRecord) {
   return id && id !== "-" && !id.startsWith("provider-") ? id : "";
 }
 
+function normalizeProviderName(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function isImportedPlaceholderProvider(value: string) {
+  const normalized = normalizeProviderName(value);
+  return normalized === "canal importado" || normalized === "canal";
+}
+
 function importLogLines(row: AnyRecord) {
   const logs = getStats(row).logs;
   return Array.isArray(logs) ? logs.map((item) => String(item)).filter(Boolean) : [];
@@ -415,30 +429,56 @@ function WorkspaceModule({
 
   if (section === "Conciliação") {
     const latestProcessedImport = workspace.imports.find((row) => getString(row, "status") === "processed");
-    const reconciliationChannels = [
-      ...workspace.channels,
-      ...workspace.providers
-        .filter((providerRow) => !workspace.channels.some((channel) => getString(channel, "provider") === getString(providerRow, "provider")))
-        .map((providerRow) => ({
-          id: `provider-${getString(providerRow, "provider")}`,
-          provider: getString(providerRow, "provider"),
-          displayName: getString(providerRow, "provider"),
+    const processedImports = workspace.imports.filter((row) => getString(row, "status") === "processed");
+    const reconciliationChannels = (() => {
+      const byProvider = new Map<string, AnyRecord>();
+      const putChannel = (candidate: AnyRecord) => {
+        const provider = getString(candidate, "provider");
+        if (!provider || isImportedPlaceholderProvider(provider)) return;
+        const providerKey = normalizeProviderName(provider);
+        const current = byProvider.get(providerKey);
+        if (!current) {
+          byProvider.set(providerKey, candidate);
+          return;
+        }
+
+        const candidateActive = getString(candidate, "status") === "active";
+        const currentActive = getString(current, "status") === "active";
+        if ((candidateActive && !currentActive) || (!validId(current) && validId(candidate))) {
+          byProvider.set(providerKey, candidate);
+        }
+      };
+
+      workspace.providers.forEach((providerRow) => {
+        const provider = getString(providerRow, "provider");
+        putChannel({
+          id: `provider-${provider}`,
+          provider,
+          displayName: provider,
           status: "spreadsheet_only",
-        })),
-    ];
+        });
+      });
+      workspace.channels.forEach(putChannel);
+
+      return Array.from(byProvider.values());
+    })();
     const selectedChannel =
       reconciliationChannels.find((channel) => getString(channel, "id") === selectedReconciliationChannelId) ?? null;
     const getChannelImports = (channel: AnyRecord) => {
       const channelId = validId(channel);
       const provider = getString(channel, "provider");
       const displayName = getString(channel, "displayName", provider);
+      const providerKey = normalizeProviderName(provider);
+      const displayKey = normalizeProviderName(displayName);
       return workspace.imports.filter((row) => {
         const rowChannelId = getString(row, "channelAccountId", "");
-        const sourceName = getString(row, "sourceName", "").toLowerCase();
+        const rowChannel = normalizeProviderName(getString(row, "channel", ""));
+        const sourceName = normalizeProviderName(getString(row, "sourceName", ""));
         return (
           (channelId && rowChannelId === channelId) ||
-          sourceName.includes(provider.toLowerCase()) ||
-          sourceName.includes(displayName.toLowerCase())
+          rowChannel === providerKey ||
+          sourceName.includes(providerKey) ||
+          (!!displayKey && sourceName.includes(displayKey))
         );
       });
     };
@@ -612,6 +652,9 @@ function WorkspaceModule({
               <span>{displayName}</span>
             </div>
             <UploadSpreadsheetButton channel={selectedChannel} onImportFile={onImportFile} />
+            <button className="primary-mini secondary" onClick={() => onChannelSync(provider)} type="button">
+              Integrar repasse do periodo
+            </button>
           </div>
 
           <div className="conciliation-filter-panel">
@@ -742,8 +785,8 @@ function WorkspaceModule({
         <p className="module-note">{panelStatus}</p>
         <MetricStrip
           items={[
-            { label: "Imports processados", value: String(workspace.imports.length) },
-            { label: "Repasses identificados", value: String(workspace.payouts.length) },
+            { label: "Fila/historico", value: String(workspace.imports.length) },
+            { label: "Repasses identificados", value: String(processedImports.length) },
             { label: "Divergências abertas", value: String(workspace.issues.length) },
           ]}
         />
@@ -753,8 +796,8 @@ function WorkspaceModule({
             const provider = getString(channel, "provider");
             const displayName = getString(channel, "displayName", provider);
             const channelImports = getChannelImports(channel);
+            const channelRepasses = channelImports.filter((row) => getString(row, "status") === "processed");
             const lastImport = channelImports[0];
-            const channelPayouts = workspace.payouts.filter((row) => getString(row, "channel") === provider);
             const channelIssueCount = channelImports.reduce((total, row) => {
               const stats = row.stats && typeof row.stats === "object" ? (row.stats as AnyRecord) : {};
               return total + Number(stats.issuesCreated ?? stats.issueCount ?? 0);
@@ -785,7 +828,7 @@ function WorkspaceModule({
                   </div>
                   <div>
                     <span>Repasses</span>
-                    <strong>{channelPayouts.length}</strong>
+                    <strong>{channelRepasses.length}</strong>
                   </div>
                   <div>
                     <span>Divergências</span>
@@ -794,6 +837,16 @@ function WorkspaceModule({
                 </div>
                 <div className="reconciliation-card-actions">
                   <UploadSpreadsheetButton channel={channel} onImportFile={onImportFile} />
+                  <button
+                    className="primary-mini secondary"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onChannelSync(provider);
+                    }}
+                    type="button"
+                  >
+                    Integrar repasse
+                  </button>
                   {lastImport ? (
                     <button
                       className="primary-mini secondary"
@@ -1276,7 +1329,11 @@ export function DashboardClient({
   }
 
   async function handleChannelSync(provider: string) {
-    await runAction(`Sincronizacao ${provider}`, () => syncChannel(session, provider), false);
+    await runAction(
+      `Sincronizacao ${provider}`,
+      () => syncChannel(session, provider, { periodStart, periodEnd }),
+      false
+    );
   }
 
   async function handleCreateRule() {
