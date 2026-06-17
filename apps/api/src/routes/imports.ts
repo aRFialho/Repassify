@@ -153,10 +153,10 @@ export async function registerImportRoutes(app: FastifyInstance) {
       targetChannel = channelResult.rows[0] ?? null;
 
       if (!targetChannel) {
-        return reply.code(404).send({
-          error: "channel_not_found",
-          message: "Canal nao encontrado para conciliacao por planilha."
-        });
+        request.log.warn(
+          { channelAccountId: requestedChannelAccountId },
+          "spreadsheet_upload_channel_not_found_continuing_without_link"
+        );
       }
     }
 

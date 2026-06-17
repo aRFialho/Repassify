@@ -1101,6 +1101,7 @@ export function DashboardClient({
 
     const provider = channel ? getString(channel, "provider") : "";
     const displayName = channel ? getString(channel, "displayName", provider) : file.name;
+    const sourceName = provider ? `${provider} - ${displayName}` : displayName;
     const channelAccountId = channel ? validId(channel) : "";
     const pendingId = `pending-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
@@ -1109,7 +1110,7 @@ export function DashboardClient({
       channelAccountId,
       channel: provider || null,
       channelDisplayName: displayName,
-      sourceName: displayName,
+      sourceName,
       fileName: file.name,
       status: "processing",
       rowCount: 0,
@@ -1136,7 +1137,7 @@ export function DashboardClient({
         () =>
           uploadImportFile(session, file, {
             channelAccountId: channelAccountId || undefined,
-            sourceName: displayName,
+            sourceName,
           }),
         false,
       )) as AnyRecord | null;
