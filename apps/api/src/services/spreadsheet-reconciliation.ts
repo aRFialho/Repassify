@@ -358,11 +358,11 @@ function inferShopeeLaunchFromHeader(header: string) {
   }
 
   if (normalized.includes("taxa de devolucao facil") || normalized.includes("taxa de envio reverso") || normalized.includes("taxa de devolucao do vendedor")) {
-    return { launchName: "Outros Debitos", category: "Outros" };
+    return { launchName: header, category: "Outros" };
   }
 
   if (normalized.includes("incentivo de cupom")) {
-    return { launchName: "Outros Creditos", category: "Outros" };
+    return { launchName: header, category: "Outros" };
   }
 
   if (normalized.includes("ajuste por pagamento via pix")) {

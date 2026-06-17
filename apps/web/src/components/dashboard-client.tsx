@@ -377,6 +377,7 @@ function WorkspaceModule({
 }) {
   const [selectedReconciliationChannelId, setSelectedReconciliationChannelId] = useState<string | null>(null);
   const [selectedImportId, setSelectedImportId] = useState<string | null>(null);
+  const [selectedLaunchName, setSelectedLaunchName] = useState<string | null>(null);
   const [reconciliationSearch, setReconciliationSearch] = useState("");
   const [reconciliationStatus, setReconciliationStatus] = useState("Todos");
   const panelStatus = status === "loading" ? "Sincronizando..." : actionMessage;
@@ -464,11 +465,21 @@ function WorkspaceModule({
       const categories = statsArray(selectedImport, "categorySummary");
       const launches = statsArray(selectedImport, "launchSummary");
       const detailRows = statsArray(selectedImport, "reconciliationRows");
+      const filteredDetailRows = selectedLaunchName
+        ? detailRows.filter((row) => getString(row, "launchName") === selectedLaunchName)
+        : detailRows;
 
       return (
         <section className="panel module-panel reconciliation-workspace">
           <div className="reconciliation-topbar">
-            <button className="ghost-action" onClick={() => setSelectedImportId(null)} type="button">
+            <button
+              className="ghost-action"
+              onClick={() => {
+                setSelectedImportId(null);
+                setSelectedLaunchName(null);
+              }}
+              type="button"
+            >
               <ArrowLeft size={17} />
               Voltar
             </button>
@@ -522,8 +533,22 @@ function WorkspaceModule({
             <article className="reconciliation-detail-panel">
               <PanelHeader title="Lancamentos" />
               <div className="launch-chip-row">
-                {launches.slice(0, 10).map((item) => (
-                  <span key={getString(item, "launchName")}>{getString(item, "launchName")} <b>{getString(item, "count", "0")}</b></span>
+                <button
+                  className={!selectedLaunchName ? "active" : ""}
+                  onClick={() => setSelectedLaunchName(null)}
+                  type="button"
+                >
+                  Todos <b>{detailRows.length}</b>
+                </button>
+                {launches.slice(0, 14).map((item) => (
+                  <button
+                    className={selectedLaunchName === getString(item, "launchName") ? "active" : ""}
+                    key={getString(item, "launchName")}
+                    onClick={() => setSelectedLaunchName(getString(item, "launchName"))}
+                    type="button"
+                  >
+                    {getString(item, "launchName")} <b>{getString(item, "count", "0")}</b>
+                  </button>
                 ))}
               </div>
               <div className="module-table-wrap">
@@ -541,7 +566,7 @@ function WorkspaceModule({
                     </tr>
                   </thead>
                   <tbody>
-                    {detailRows.slice(0, 50).map((row, index) => (
+                    {filteredDetailRows.slice(0, 50).map((row, index) => (
                       <tr key={`${getString(row, "rowNumber", String(index))}-${index}`}>
                         <td>{getString(row, "orderNumber")}</td>
                         <td>{formatDate(row.settlementDate)}</td>
@@ -553,7 +578,7 @@ function WorkspaceModule({
                         <td>{getString(row, "status")}</td>
                       </tr>
                     ))}
-                    {!detailRows.length ? <tr><td colSpan={8}>Sem lancamentos detalhados para esta conciliacao.</td></tr> : null}
+                    {!filteredDetailRows.length ? <tr><td colSpan={8}>Sem lancamentos detalhados para este filtro.</td></tr> : null}
                   </tbody>
                 </table>
               </div>
@@ -575,6 +600,7 @@ function WorkspaceModule({
               onClick={() => {
                 setSelectedReconciliationChannelId(null);
                 setSelectedImportId(null);
+                setSelectedLaunchName(null);
               }}
               type="button"
             >
@@ -668,7 +694,17 @@ function WorkspaceModule({
                           </td>
                           <td><span className="status-pill">{statsArray(row, "reconciliationRows").length ? "Sim" : "Nao"}</span></td>
                           <td>
-                            <button className="icon-table-action" disabled={!canOpen} onClick={() => setSelectedImportId(getString(row, "id"))} type="button"><Eye size={17} /></button>
+                            <button
+                              className="icon-table-action"
+                              disabled={!canOpen}
+                              onClick={() => {
+                                setSelectedImportId(getString(row, "id"));
+                                setSelectedLaunchName(null);
+                              }}
+                              type="button"
+                            >
+                              <Eye size={17} />
+                            </button>
                             <button className="icon-table-action" disabled={!canOpen} onClick={() => onDownloadReconciledImport(getString(row, "id"))} type="button"><FileText size={17} /></button>
                           </td>
                         </tr>
@@ -731,6 +767,7 @@ function WorkspaceModule({
                 onClick={() => {
                   setSelectedReconciliationChannelId(channelId);
                   setSelectedImportId(null);
+                  setSelectedLaunchName(null);
                 }}
               >
                 <div className="reconciliation-channel-head">
@@ -783,6 +820,7 @@ function WorkspaceModule({
                             if (canOpen) {
                               setSelectedReconciliationChannelId(channelId);
                               setSelectedImportId(getString(row, "id"));
+                              setSelectedLaunchName(null);
                             }
                           }}
                           type="button"

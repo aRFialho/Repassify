@@ -1159,7 +1159,7 @@ img {
   gap: 8px;
 }
 
-.launch-chip-row span {
+.launch-chip-row button {
   min-height: 30px;
   display: inline-flex;
   align-items: center;
@@ -1171,6 +1171,13 @@ img {
   background: #ffffff;
   font-size: 12px;
   font-weight: 800;
+  cursor: pointer;
+}
+
+.launch-chip-row button.active {
+  border-color: #0b48d9;
+  color: #ffffff;
+  background: #0a2d88;
 }
 
 .launch-chip-row b {
@@ -1183,6 +1190,11 @@ img {
   color: #5e7195;
   background: #eef4fb;
   font-size: 10px;
+}
+
+.launch-chip-row button.active b {
+  color: #071f63;
+  background: #ffffff;
 }
 
 .module-table-wrap {
